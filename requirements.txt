@@ -1,0 +1,19 @@
+# 答题卡小题分匹配系统 - 依赖
+# 安装方式: pip install -r requirements.txt
+
+# 核心依赖
+Flask>=2.0
+Pillow>=9.0
+numpy>=1.20
+pyzbar>=0.1.9
+
+# Excel 文件支持
+openpyxl>=3.0
+xlrd>=2.0
+
+# PDF 文件支持
+PyMuPDF>=1.20
+
+# Windows 上如果用不了 pyzbar，可能需要:
+# 1. 下载 Visual C++ Redistributable: https://aka.ms/vs/17/release/vc_redist.x64.exe
+# 2. 或者使用 pip install pyzbar-lite 作为替代

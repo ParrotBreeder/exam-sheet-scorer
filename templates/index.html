@@ -1,0 +1,1330 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>答题卡小题分匹配系统</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; background: #f0f4f8; color: #333; min-height: 100vh; }
+.header { background: linear-gradient(135deg, #2c3e50, #3498db); color: #fff; padding: 24px; text-align: center; }
+.header h1 { font-size: 24px; font-weight: 500; }
+.header p { font-size: 13px; opacity: 0.85; margin-top: 6px; }
+
+.container { max-width: 960px; margin: 0 auto; padding: 24px 16px; }
+
+/* 步骤指示器 */
+.steps { display: flex; justify-content: center; margin-bottom: 32px; gap: 0; flex-wrap: wrap; }
+.step { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #fff; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 13px; color: #999; white-space: nowrap; }
+.step .num { width: 26px; height: 26px; border-radius: 50%; background: #e0e0e0; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; flex-shrink: 0; }
+.step.active { border-color: #3498db; color: #3498db; }
+.step.active .num { background: #3498db; }
+.step.done { border-color: #27ae60; color: #27ae60; }
+.step.done .num { background: #27ae60; }
+.step-arrow { display: flex; align-items: center; color: #ccc; font-size: 18px; padding: 0 2px; }
+
+/* 卡片 */
+.card { background: #fff; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); padding: 28px; margin-bottom: 20px; }
+.card h2 { font-size: 18px; margin-bottom: 6px; color: #2c3e50; }
+.card .subtitle { font-size: 13px; color: #999; margin-bottom: 20px; }
+
+/* 按钮 */
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 10px 22px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; font-family: inherit; transition: all 0.2s; }
+.btn-primary { background: #3498db; color: #fff; }
+.btn-primary:hover { background: #2980b9; }
+.btn-success { background: #27ae60; color: #fff; }
+.btn-success:hover { background: #219a52; }
+.btn-danger { background: #e74c3c; color: #fff; }
+.btn-danger:hover { background: #c0392b; }
+.btn-outline { background: #fff; color: #3498db; border: 2px solid #3498db; }
+.btn-outline:hover { background: #ebf5fb; }
+.btn-sm { padding: 6px 14px; font-size: 13px; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-group { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+
+/* 上传区域 */
+.dropzone { border: 2px dashed #ccc; border-radius: 10px; padding: 40px; text-align: center; cursor: pointer; transition: all 0.2s; background: #fafbfc; }
+.dropzone:hover, .dropzone.dragover { border-color: #3498db; background: #ebf5fb; }
+.dropzone .icon { font-size: 40px; margin-bottom: 8px; }
+.dropzone .text { font-size: 14px; color: #666; }
+.dropzone .hint { font-size: 12px; color: #999; margin-top: 4px; }
+
+/* 表格预览 */
+.table-wrap { max-height: 360px; overflow: auto; border: 1px solid #e8e8e8; border-radius: 8px; }
+.table-wrap table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.table-wrap th, .table-wrap td { padding: 8px 10px; border-bottom: 1px solid #eee; text-align: left; white-space: nowrap; }
+.table-wrap th { background: #f5f7fa; position: sticky; top: 0; font-weight: 500; color: #666; }
+.table-wrap tr:hover td { background: #fafbfc; }
+.table-wrap .row-num { color: #999; text-align: center; min-width: 40px; }
+
+/* 配置面板 */
+.config-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; align-items: center; }
+.config-row label { font-size: 13px; color: #555; min-width: 100px; }
+.config-row select, .config-row input { padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; font-family: inherit; min-width: 120px; }
+.config-row select:focus, .config-row input:focus { border-color: #3498db; outline: none; }
+
+/* 缩略图网格 */
+.thumb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; max-height: 400px; overflow: auto; }
+.thumb-item { border: 2px solid #eee; border-radius: 8px; overflow: hidden; text-align: center; cursor: pointer; }
+.thumb-item:hover { border-color: #3498db; }
+.thumb-item img { width: 100%; height: 90px; object-fit: cover; display: block; }
+.thumb-item .name { font-size: 10px; padding: 4px; color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 位置标记区域 */
+.mark-area { position: relative; display: inline-block; border: 2px solid #e0e0e0; border-radius: 8px; overflow: auto; max-height: 70vh; max-width: 100%; cursor: crosshair; }
+.mark-area img { display: block; }
+.mark-dot { position: absolute; background: rgba(231, 76, 60, 0.85); border: 1px solid #fff; border-radius: 3px; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 10px; font-weight: bold; z-index: 10; box-shadow: 0 1px 3px rgba(0,0,0,0.3); padding: 2px 5px; white-space: nowrap; cursor: grab; min-width: 20px; }
+.mark-dot.dragging { cursor: grabbing; opacity: 0.7; z-index: 20; }
+.mark-list { max-height: 300px; overflow: auto; margin-top: 12px; }
+.mark-list table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.mark-list th, .mark-list td { padding: 6px 10px; border-bottom: 1px solid #eee; }
+.mark-list th { background: #f5f7fa; font-weight: 500; }
+
+/* 进度 */
+.progress-bar { height: 8px; background: #eee; border-radius: 4px; overflow: hidden; margin: 12px 0; }
+.progress-bar .fill { height: 100%; background: #3498db; border-radius: 4px; transition: width 0.3s; }
+
+/* 状态标签 */
+.tag { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 12px; }
+.tag-ok { background: #d5f5e3; color: #27ae60; }
+.tag-warn { background: #fdebd0; color: #e67e22; }
+.tag-err { background: #fadbd8; color: #c0392b; }
+
+/* 通知 */
+.toast { position: fixed; top: 20px; right: 20px; padding: 14px 22px; border-radius: 8px; color: #fff; font-size: 14px; z-index: 1000; animation: slideIn 0.3s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+.toast-info { background: #3498db; }
+.toast-ok { background: #27ae60; }
+.toast-err { background: #e74c3c; }
+@keyframes slideIn { from { transform: translateX(100px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+/* 预览图片 */
+.preview-img-wrap { text-align: center; margin: 16px 0; }
+.preview-img-wrap img { max-width: 100%; max-height: 60vh; border: 1px solid #e0e0e0; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+
+/* 隐藏 */
+.hidden { display: none !important; }
+
+/* 响应式 */
+@media (max-width: 768px) {
+  .steps { flex-direction: column; align-items: stretch; }
+  .step-arrow { display: none; }
+  .config-row { flex-direction: column; gap: 6px; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>答题卡小题分匹配系统</h1>
+  <p>将学生小题分叠加打印到扫描答题卡上，方便分析试卷</p>
+</div>
+
+<div class="container" id="app">
+  <!-- 步骤指示器 -->
+  <div class="steps">
+    <div class="step active" data-step="1"><span class="num">1</span>上传成绩</div>
+    <span class="step-arrow">→</span>
+    <div class="step" data-step="2"><span class="num">2</span>上传答题卡</div>
+    <span class="step-arrow">→</span>
+    <div class="step" data-step="3"><span class="num">3</span>标记位置</div>
+    <span class="step-arrow">→</span>
+    <div class="step" data-step="4"><span class="num">4</span>处理设置</div>
+    <span class="step-arrow">→</span>
+    <div class="step" data-step="5"><span class="num">5</span>成品预览</div>
+    <span class="step-arrow">→</span>
+    <div class="step" data-step="6"><span class="num">6</span>处理下载</div>
+  </div>
+
+  <!-- 步骤1: 上传成绩文件 -->
+  <div class="card" id="step1">
+    <h2>第1步：上传小题分文件</h2>
+    <p class="subtitle">支持 CSV、XLS、XLSX 格式。文件应包含考号、姓名、班级及各题得分。</p>
+    <div class="dropzone" id="score-dropzone">
+      <div class="icon">📄</div>
+      <div class="text">点击选择或拖拽成绩文件到此处</div>
+      <div class="hint">支持 .csv / .xls / .xlsx</div>
+      <input type="file" id="score-file-input" accept=".csv,.xls,.xlsx" style="display:none">
+    </div>
+    <div id="score-status" style="margin-top:10px;font-size:13px;"></div>
+    <div id="score-preview" class="hidden" style="margin-top:16px;">
+      <h3 style="font-size:15px;margin-bottom:10px;">数据预览（前20行）</h3>
+      <div class="table-wrap" id="score-table-wrap"></div>
+    </div>
+    <div id="score-config" class="hidden" style="margin-top:20px;">
+      <h3 style="font-size:15px;margin-bottom:14px;">数据列配置</h3>
+      <div class="config-row">
+        <label>忽略前几行：</label>
+        <select id="cfg-skip-rows"><option value="0">0 - 不忽略</option></select>
+        <span style="font-size:12px;color:#999;">（跳过表头等非数据行）</span>
+      </div>
+      <div class="config-row">
+        <label>考号所在列：</label>
+        <select id="cfg-id-column"></select>
+      </div>
+      <div class="config-row">
+        <label>满分所在行：</label>
+        <select id="cfg-full-row"><option value="0">第1行</option></select>
+        <span style="font-size:12px;color:#999;">（用于获取每道题的满分值，显示为"得分/满分"）</span>
+      </div>
+      <div class="config-row">
+        <label>班级所在列：</label>
+        <select id="cfg-class-column"><option value="-1">不用班级</option></select>
+        <span style="font-size:12px;color:#999;">（可选，用于按班级分文件夹输出）</span>
+      </div>
+      <div class="config-row">
+        <label>小题分起始列：</label>
+        <select id="cfg-score-start"></select>
+        <span style="font-size:12px;color:#999;">（第一道小题的列）</span>
+      </div>
+      <div class="config-row">
+        <label>小题分结束列：</label>
+        <select id="cfg-score-end"><option value="-1">到最后一列</option></select>
+        <span style="font-size:12px;color:#999;">（最后一道小题的列，含）</span>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-primary" onclick="applyScoreConfig()">确认配置，进入下一步</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 步骤2: 上传答题卡 -->
+  <div class="card hidden" id="step2">
+    <h2>第2步：上传答题卡图片</h2>
+    <p class="subtitle">支持 JPG、PNG、PDF 等格式。条码模式下自动识别条码；无条码则从文件名提取数字匹配考号。</p>
+    <div class="dropzone" id="image-dropzone">
+      <div class="icon">🖼️</div>
+      <div class="text">点击选择或拖拽答题卡图片到此处</div>
+      <div class="hint">支持 .jpg / .jpeg / .png / .bmp / .tiff / .pdf（可多选）</div>
+      <input type="file" id="image-file-input" accept=".jpg,.jpeg,.png,.bmp,.tiff,.tif,.pdf" multiple style="display:none">
+    </div>
+    <div id="image-status" style="margin-top:10px;font-size:13px;"></div>
+    <div id="image-preview" class="hidden" style="margin-top:16px;">
+      <h3 style="font-size:15px;margin-bottom:10px;">已上传图片</h3>
+      <div class="thumb-grid" id="thumb-grid"></div>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-outline" onclick="goToStep(1)">← 上一步</button>
+      <button class="btn btn-primary" id="btn-step2-next" onclick="goToStep(3)">下一步：标记位置 →</button>
+    </div>
+  </div>
+
+  <!-- 步骤3: 标记分数位置 -->
+  <div class="card hidden" id="step3">
+    <h2>第3步：标记分数打印位置</h2>
+    <p class="subtitle" id="step3-subtitle">在答题卡图片上点击每道小题分数要打印的位置。右键或点击"撤销"可删除上一个标记。</p>
+
+    <div class="config-row">
+      <label>选择模板图片：</label>
+      <select id="template-image-select" onchange="loadTemplateImage()" style="min-width:250px;"></select>
+      <button class="btn btn-sm btn-outline" onclick="refreshImageList()">刷新列表</button>
+    </div>
+
+    <div class="config-row">
+      <label>X轴偏移：</label>
+      <input type="range" id="x-offset-slider" min="-10" max="10" step="0.1" value="0" oninput="updateOffsets()" style="width:200px;">
+      <span id="x-offset-value" style="font-size:13px;">0%</span>
+      <span style="font-size:12px;color:#999;">（微调所有标记的左右位置）</span>
+    </div>
+
+    <div class="config-row">
+      <label>Y轴偏移：</label>
+      <input type="range" id="y-offset-slider" min="-10" max="10" step="0.1" value="0" oninput="updateOffsets()" style="width:200px;">
+      <span id="y-offset-value" style="font-size:13px;">0%</span>
+      <span style="font-size:12px;color:#999;">（微调所有标记的上下位置）</span>
+    </div>
+
+    <div class="config-row">
+      <label>试卷类型：</label>
+      <select id="cfg-double-sided-step3" onchange="onDoubleSidedChange()">
+        <option value="0">单面</option>
+        <option value="1">双面（正反面）</option>
+      </select>
+    </div>
+
+    <div class="config-row" id="side-select-row" style="display:none;">
+      <label>当前标记面：</label>
+      <select id="side-select" onchange="switchSide()">
+        <option value="front">正面</option>
+        <option value="back">背面</option>
+      </select>
+      <span style="font-size:12px;color:#999;">（分别标记正反面位置）</span>
+    </div>
+
+    <div class="config-row">
+      <label>位置模板：</label>
+      <select id="template-load-select" onchange="loadPositionTemplate()" style="min-width:180px;">
+        <option value="">-- 选择已保存的模板 --</option>
+      </select>
+      <button class="btn btn-sm btn-outline" onclick="savePositionTemplate()">保存当前记录点</button>
+      <button class="btn btn-sm btn-danger" onclick="clearAllTemplates()">清除所有模板</button>
+    </div>
+
+    <div style="margin:12px 0; display:flex; gap:10px; align-items:center;">
+      <span style="font-size:13px;color:#555;">已标记：<strong id="mark-count">0</strong> 个位置</span>
+      <button class="btn btn-sm btn-outline" onclick="undoLastMark()">撤销最后一个</button>
+      <button class="btn btn-sm btn-danger" onclick="clearAllMarks()">清除全部</button>
+      <span style="font-size:12px;color:#999;margin-left:8px;">（点击图片添加标记，拖拽可移动。标记点会自动对齐吸附已有位置的X/Y坐标，按住 <strong>Alt</strong> 可取消磁吸）</span>
+    </div>
+
+    <div class="mark-area" id="mark-container">
+      <img id="mark-image" src="" alt="点击图片标记位置" style="max-width:100%;">
+    </div>
+
+    <div class="mark-list" id="mark-list" style="margin-top:12px;"></div>
+
+    <div class="btn-group">
+      <button class="btn btn-outline" onclick="goToStep(2)">← 上一步</button>
+      <button class="btn btn-primary" id="btn-save-positions" onclick="savePositions()">保存位置，进入下一步</button>
+    </div>
+  </div>
+
+  <!-- 步骤4: 处理设置 -->
+  <div class="card hidden" id="step4">
+    <h2>第4步：处理设置</h2>
+    <p class="subtitle">配置匹配和输出选项。</p>
+
+    <div class="config-row">
+      <label>试卷类型：</label>
+      <span id="step4-double-sided-display" style="font-size:13px;">单面</span>
+    </div>
+
+    <div class="config-row">
+      <label>匹配方式：</label>
+      <select id="cfg-use-barcode">
+        <option value="1">条码识别（推荐）</option>
+        <option value="0">文件名数字匹配</option>
+      </select>
+      <span style="font-size:12px;color:#999;" id="barcode-status"></span>
+    </div>
+
+    <div class="config-row">
+      <label>字号大小：</label>
+      <input type="number" id="cfg-font-size" value="80" min="20" max="500" step="5">
+      <span style="font-size:12px;color:#999;" id="font-size-hint">（印在答题卡上的分数文字大小，将根据模板图片分辨率自动计算建议值）</span>
+    </div>
+
+    <div class="config-row">
+      <label>按班级分文件夹：</label>
+      <select id="cfg-class-folders">
+        <option value="1">是</option>
+        <option value="0">否 - 全部放到同一文件夹</option>
+      </select>
+    </div>
+
+    <div class="btn-group">
+      <button class="btn btn-outline" onclick="goToStep(3)">← 上一步</button>
+      <button class="btn btn-primary" onclick="goToStep(5)">下一步：成品预览 →</button>
+    </div>
+  </div>
+
+  <!-- 步骤5: 成品预览 -->
+  <div class="card hidden" id="step5">
+    <h2>第5步：成品预览</h2>
+    <p class="subtitle">生成一张示例图片以检查分数位置和字号效果，确认无误后再进行批量处理。</p>
+
+    <div id="preview-status" style="margin-bottom:12px;font-size:13px;color:#999;">点击按钮生成预览</div>
+
+    <div id="preview-front-wrap" class="preview-img-wrap hidden">
+      <h4 style="font-size:14px;margin-bottom:8px;color:#555;">正面预览</h4>
+      <img id="preview-front-img" src="" alt="正面预览">
+    </div>
+    <div id="preview-back-wrap" class="preview-img-wrap hidden">
+      <h4 style="font-size:14px;margin-bottom:8px;color:#555;">背面预览</h4>
+      <img id="preview-back-img" src="" alt="背面预览">
+    </div>
+
+    <div class="btn-group">
+      <button class="btn btn-outline" onclick="goToStep(4)">← 上一步</button>
+      <button class="btn btn-primary" id="btn-generate-preview" onclick="generatePreview()">生成预览</button>
+      <button class="btn btn-success" onclick="goToStep(6)">下一步：处理下载 →</button>
+    </div>
+  </div>
+
+  <!-- 步骤6: 处理与下载 -->
+  <div class="card hidden" id="step6">
+    <h2>第6步：处理结果</h2>
+    <p class="subtitle" id="process-status-text">等待处理...</p>
+
+    <div class="progress-bar hidden" id="progress-bar">
+      <div class="fill" id="progress-fill" style="width:0%;"></div>
+    </div>
+
+    <div id="process-result" style="margin-top:16px;"></div>
+
+    <div id="save-controls" class="hidden" style="margin-top:16px;">
+      <div class="config-row">
+        <label>保存结果：</label>
+        <button class="btn btn-primary" id="btn-pick-folder" onclick="pickAndSaveFolder()">选择保存文件夹</button>
+        <span style="font-size:12px;color:#999;">（弹出系统文件夹选择对话框）</span>
+      </div>
+      <div id="save-fallback" class="hidden" style="margin-top:12px;">
+        <div class="config-row">
+          <label>保存到：</label>
+          <input type="text" id="save-path" placeholder="例如：D:\考试成绩" style="min-width:350px;">
+        </div>
+        <p style="font-size:12px;color:#999;margin-bottom:8px;">
+          当前浏览器不支持原生文件夹选择，请手动输入目标路径。
+        </p>
+        <button class="btn btn-sm btn-outline" onclick="saveToFolderFallback()">拷贝到输入路径</button>
+      </div>
+    </div>
+
+    <div class="btn-group">
+      <button class="btn btn-outline" onclick="goToStep(5)">← 返回预览</button>
+      <button class="btn btn-success" id="btn-start-process" onclick="startProcess()">开始处理</button>
+      <button class="btn btn-primary hidden" id="btn-save" onclick="pickAndSaveFolder()">保存到本地并清理缓存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+//  全局状态
+// ============================================================
+let jobId = null;
+let currentStep = 1;
+let scoreRows = [];
+let allImages = [];
+let marksFront = [];  // [{x, y, el}]
+let marksBack = [];
+let currentSide = 'front';
+let fullScores = [];           // 每题满分值数组
+let sampleStudentScores = [];  // 第一名学生的小题分数组
+let dragDot = null;            // 当前拖拽的标记点 DOM
+let snapThreshold = 1.0;       // 吸附阈值（百分比）
+let defaultFontSize = 80;      // 根据模板图片分辨率计算的默认字号
+
+// ============================================================
+//  初始化
+// ============================================================
+async function init() {
+  try {
+    const res = await fetch('/api/init-job', { method: 'POST' });
+    const data = await res.json();
+    jobId = data.job_id;
+    console.log('Job ID:', jobId);
+  } catch (e) {
+    toast('无法连接服务器，请确认程序已启动', 'err');
+  }
+  checkDeps();
+  setupDropzones();
+}
+
+async function checkDeps() {
+  try {
+    const res = await fetch('/api/dependencies');
+    const deps = await res.json();
+    if (!deps.pyzbar) {
+      document.getElementById('barcode-status').textContent = '（⚠ 未安装 pyzbar，条码功能不可用）';
+      document.getElementById('cfg-use-barcode').value = '0';
+    }
+    if (!deps.pymupdf) {
+      toast('提示：安装 pymupdf 可支持 PDF 文件 (pip install pymupdf)', 'info');
+    }
+    if (!deps.openpyxl && !deps.xlrd) {
+      toast('提示：安装 openpyxl 可支持 Excel 文件 (pip install openpyxl)', 'info');
+    }
+  } catch (e) {}
+}
+
+// ============================================================
+//  步骤导航 (共6步)
+// ============================================================
+function goToStep(n) {
+  const prevStep = currentStep;
+  // 隐藏所有步骤
+  for (let i = 1; i <= 6; i++) {
+    const el = document.getElementById('step' + i);
+    if (el) el.classList.add('hidden');
+  }
+  // 显示目标步骤
+  const target = document.getElementById('step' + n);
+  if (target) target.classList.remove('hidden');
+  currentStep = n;
+
+  // 更新步骤指示器
+  document.querySelectorAll('.step').forEach(s => {
+    const sn = parseInt(s.dataset.step);
+    s.classList.remove('active', 'done');
+    if (sn === n) s.classList.add('active');
+    else if (sn < n) s.classList.add('done');
+  });
+
+  // 进入步骤3时加载图片列表和模板
+  if (n === 3) {
+    refreshImageList();
+    refreshTemplateList();
+    // 从步骤4回退到步骤3时，自动加载最新模板
+    if (prevStep === 4) {
+      setTimeout(autoLoadLatestTemplate, 500);
+    }
+  }
+  if (n === 4) {
+    const double = document.getElementById('cfg-double-sided-step3').value === '1';
+    document.getElementById('step4-double-sided-display').textContent = double ? '双面（正反面）' : '单面';
+    if (defaultFontSize) {
+      document.getElementById('cfg-font-size').value = defaultFontSize;
+    }
+  }
+  if (n === 5) {
+    document.getElementById('step5').classList.remove('hidden');
+    // 自动生成预览
+    setTimeout(generatePreview, 300);
+  }
+  if (n === 6) document.getElementById('step6').classList.remove('hidden');
+
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ============================================================
+//  拖拽上传
+// ============================================================
+function setupDropzones() {
+  setupDropzone('score-dropzone', 'score-file-input', handleScoreFile);
+  setupDropzone('image-dropzone', 'image-file-input', handleImageFiles);
+}
+
+function setupDropzone(dropId, inputId, handler) {
+  const dropzone = document.getElementById(dropId);
+  const input = document.getElementById(inputId);
+
+  dropzone.addEventListener('click', () => input.click());
+  dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+  dropzone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropzone.classList.remove('dragover');
+    handler(e.dataTransfer.files);
+  });
+  input.addEventListener('change', () => handler(input.files));
+}
+
+// ============================================================
+//  步骤1: 处理成绩文件
+// ============================================================
+async function handleScoreFile(files) {
+  if (!files.length) return;
+  const file = files[0];
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!['csv', 'xls', 'xlsx'].includes(ext)) {
+    toast('不支持的文件格式，请选择 CSV / XLS / XLSX 文件', 'err');
+    return;
+  }
+
+  const status = document.getElementById('score-status');
+  status.innerHTML = '<span style="color:#3498db;">正在解析文件...</span>';
+
+  const form = new FormData();
+  form.append('file', file);
+  form.append('job_id', jobId);
+
+  try {
+    const res = await fetch('/api/upload-scores', { method: 'POST', body: form });
+    const data = await res.json();
+    if (data.error) { toast(data.error, 'err'); status.textContent = ''; return; }
+
+    scoreRows = data.preview;
+    status.innerHTML = `<span class="tag tag-ok">已解析 ${data.total_rows} 行数据</span>`;
+
+    renderScoreTable(data.preview, data.max_cols);
+    document.getElementById('score-preview').classList.remove('hidden');
+    document.getElementById('score-config').classList.remove('hidden');
+
+    populateScoreConfig(data.total_rows, data.max_cols);
+
+  } catch (e) {
+    toast('上传失败: ' + e.message, 'err');
+    status.textContent = '';
+  }
+}
+
+function renderScoreTable(rows, maxCols) {
+  const wrap = document.getElementById('score-table-wrap');
+  let html = '<table><thead><tr><th>行</th>';
+  for (let c = 0; c < maxCols; c++) {
+    html += `<th>第${c+1}列</th>`;
+  }
+  html += '</tr></thead><tbody>';
+  rows.forEach((row, i) => {
+    html += `<tr><td class="row-num">${i+1}</td>`;
+    for (let c = 0; c < maxCols; c++) {
+      html += `<td>${row[c] || ''}</td>`;
+    }
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+function populateScoreConfig(totalRows, maxCols) {
+  const skipSel = document.getElementById('cfg-skip-rows');
+  skipSel.innerHTML = '';
+  for (let i = 0; i < Math.min(totalRows, 5); i++) {
+    skipSel.innerHTML += `<option value="${i}">${i} 行</option>`;
+  }
+
+  const colSels = ['cfg-id-column', 'cfg-score-start', 'cfg-score-end', 'cfg-class-column'];
+  colSels.forEach(id => {
+    const sel = document.getElementById(id);
+    const prevVal = sel.value;
+    sel.innerHTML = '';
+    if (id === 'cfg-class-column' || id === 'cfg-score-end') {
+      sel.innerHTML += `<option value="-1">${id === 'cfg-class-column' ? '不用班级' : '到最后一列'}</option>`;
+    }
+    for (let c = 0; c < maxCols; c++) {
+      sel.innerHTML += `<option value="${c}">第${c+1}列</option>`;
+    }
+    if (prevVal) sel.value = prevVal;
+  });
+
+  const fullSel = document.getElementById('cfg-full-row');
+  fullSel.innerHTML = '';
+  for (let i = 0; i < Math.min(totalRows, 3); i++) {
+    fullSel.innerHTML += `<option value="${i}">第${i+1}行</option>`;
+  }
+
+  document.getElementById('cfg-skip-rows').value = '2';
+  document.getElementById('cfg-id-column').value = '1';
+  document.getElementById('cfg-full-row').value = '1';
+  document.getElementById('cfg-score-start').value = '5';
+}
+
+async function applyScoreConfig() {
+  const config = {
+    job_id: jobId,
+    skip_rows: parseInt(document.getElementById('cfg-skip-rows').value),
+    id_column: parseInt(document.getElementById('cfg-id-column').value),
+    full_score_row: parseInt(document.getElementById('cfg-full-row').value),
+    score_start_column: parseInt(document.getElementById('cfg-score-start').value),
+    score_end_column: parseInt(document.getElementById('cfg-score-end').value),
+    class_column: parseInt(document.getElementById('cfg-class-column').value),
+  };
+
+  try {
+    const res = await fetch('/api/config-scores', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    });
+    const data = await res.json();
+    if (data.error) { toast(data.error, 'err'); return; }
+
+    fullScores = data.full_scores || [];
+    if (data.sample_students && data.sample_students.length > 0) {
+      sampleStudentScores = data.sample_students[0].scores || [];
+    } else {
+      sampleStudentScores = [];
+    }
+
+    toast(`配置成功：${data.student_count} 名学生，${data.question_count} 道小题`, 'ok');
+    goToStep(2);
+
+  } catch (e) {
+    toast('配置失败: ' + e.message, 'err');
+  }
+}
+
+// ============================================================
+//  步骤2: 上传答题卡图片
+// ============================================================
+async function handleImageFiles(files) {
+  if (!files.length) return;
+  const status = document.getElementById('image-status');
+  status.innerHTML = '<span style="color:#3498db;">正在上传...</span>';
+
+  const form = new FormData();
+  form.append('job_id', jobId);
+  for (const f of files) {
+    form.append('files', f);
+  }
+
+  try {
+    const res = await fetch('/api/upload-images', { method: 'POST', body: form });
+    const data = await res.json();
+    if (data.error) { toast(data.error, 'err'); return; }
+
+    allImages = data.images;
+    status.innerHTML = `<span class="tag tag-ok">已上传 ${data.total_images} 张图片</span>`;
+    if (data.errors.length) {
+      status.innerHTML += `<br><span style="color:#e67e22;font-size:12px;">${data.errors.join('<br>')}</span>`;
+    }
+
+    renderThumbnails(data.images);
+    document.getElementById('image-preview').classList.remove('hidden');
+
+  } catch (e) {
+    toast('上传失败: ' + e.message, 'err');
+    status.textContent = '';
+  }
+}
+
+function renderThumbnails(images) {
+  const grid = document.getElementById('thumb-grid');
+  grid.innerHTML = images.slice(0, 50).map(fn => `
+    <div class="thumb-item">
+      <img src="/api/preview-image/${jobId}/${encodeURIComponent(fn)}" alt="${fn}" loading="lazy"
+           onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22120%22 height=%2290%22><rect fill=%22%23eee%22 width=%22120%22 height=%2290%22/><text x=%2260%22 y=%2250%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%2212%22>无预览</text></svg>'">
+      <div class="name">${fn.length > 18 ? fn.slice(0, 17) + '…' : fn}</div>
+    </div>
+  `).join('');
+  if (images.length > 50) {
+    grid.innerHTML += `<div style="padding:20px;text-align:center;color:#999;">...还有 ${images.length - 50} 张</div>`;
+  }
+}
+
+// ============================================================
+//  步骤3: 标记分数位置
+// ============================================================
+async function refreshImageList() {
+  if (!jobId) return;
+  try {
+    const res = await fetch('/api/image-list/' + jobId);
+    const data = await res.json();
+    allImages = data.images;
+    const sel = document.getElementById('template-image-select');
+    sel.innerHTML = data.images.map(fn => `<option value="${fn}">${fn}</option>`).join('');
+    if (data.images.length) loadTemplateImage();
+  } catch (e) {}
+}
+
+function loadTemplateImage() {
+  const fn = document.getElementById('template-image-select').value;
+  if (!fn) return;
+  const img = document.getElementById('mark-image');
+
+  clearAllMarks();
+
+  const onLoadHandler = function() {
+    if (img.naturalWidth > 0) {
+      defaultFontSize = Math.round(img.naturalWidth * 200 / 9984);
+      document.getElementById('cfg-font-size').value = defaultFontSize;
+      const hint = document.getElementById('font-size-hint');
+      if (hint) hint.textContent = `（基于模板图片 ${img.naturalWidth}×${img.naturalHeight}，建议字号: ${defaultFontSize}）`;
+    }
+  };
+  img.onload = onLoadHandler;
+  img.src = '/api/preview-image/' + jobId + '/' + encodeURIComponent(fn) + '?t=' + Date.now();
+  if (img.complete) {
+    setTimeout(onLoadHandler, 0);
+  }
+}
+
+function switchSide() {
+  const side = document.getElementById('side-select').value;
+  if (currentSide === 'front') marksFront = getCurrentMarks();
+  else marksBack = getCurrentMarks();
+
+  currentSide = side;
+
+  clearMarkDots();
+  const marks = side === 'front' ? marksFront : marksBack;
+  const baseIndex = side === 'front' ? 0 : marksFront.length;
+  marks.forEach((m, i) => addMarkDot(m.x, m.y, baseIndex + i));
+  updateMarkList();
+}
+
+function onDoubleSidedChange() {
+  const double = document.getElementById('cfg-double-sided-step3').value === '1';
+  document.getElementById('side-select-row').style.display = double ? '' : 'none';
+  if (!double) {
+    currentSide = 'front';
+    document.getElementById('side-select').value = 'front';
+  }
+}
+
+// ============================================================
+//  位置模板管理
+// ============================================================
+async function refreshTemplateList() {
+  try {
+    const res = await fetch('/api/position-templates/list');
+    const data = await res.json();
+    const sel = document.getElementById('template-load-select');
+    sel.innerHTML = '<option value="">-- 选择已保存的模板 --</option>';
+    data.templates.forEach(t => {
+      sel.innerHTML += `<option value="${t.filename}">${t.name} (正面${t.front_count}点, 背面${t.back_count}点)</option>`;
+    });
+  } catch (e) {}
+}
+
+async function autoLoadLatestTemplate() {
+  try {
+    const res = await fetch('/api/position-templates/list');
+    const data = await res.json();
+    if (data.templates.length === 0) return;
+    // 按文件名排序取最新（文件名含时间戳）
+    const latest = data.templates[data.templates.length - 1];
+    document.getElementById('template-load-select').value = latest.filename;
+    await loadPositionTemplate();
+  } catch (e) {}
+}
+
+async function savePositionTemplate() {
+  const name = prompt('请输入模板名称（例如：高三数学月考）：');
+  if (!name) return;
+
+  if (currentSide === 'front') marksFront = getCurrentMarks();
+  else marksBack = getCurrentMarks();
+
+  const xOff = parseFloat(document.getElementById('x-offset-slider').value);
+  const yOff = parseFloat(document.getElementById('y-offset-slider').value);
+  try {
+    const res = await fetch('/api/position-templates/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: name,
+        positions_front: marksFront,
+        positions_back: marksBack,
+        y_offset: yOff,
+        x_offset: xOff,
+      }),
+    });
+    const data = await res.json();
+    if (data.error) { toast(data.error, 'err'); return; }
+    toast('模板已保存: ' + data.name, 'ok');
+    refreshTemplateList();
+  } catch (e) {
+    toast('保存失败: ' + e.message, 'err');
+  }
+}
+
+async function clearAllTemplates() {
+  if (!confirm('确定要清除所有已保存的位置模板吗？此操作不可恢复。')) return;
+
+  try {
+    const res = await fetch('/api/position-templates/clear-all', { method: 'POST' });
+    const data = await res.json();
+    if (data.error) { toast(data.error, 'err'); return; }
+    toast(`已清除 ${data.deleted} 个模板`, 'ok');
+    refreshTemplateList();
+  } catch (e) {
+    toast('清除失败: ' + e.message, 'err');
+  }
+}
+
+async function loadPositionTemplate() {
+  const name = document.getElementById('template-load-select').value;
+  if (!name) return;
+
+  try {
+    const res = await fetch('/api/position-templates/list');
+    const data = await res.json();
+    const tpl = data.templates.find(t => t.filename === name);
+    if (!tpl) { toast('模板未找到', 'err'); return; }
+
+    marksFront = tpl.positions_front || [];
+    marksBack = tpl.positions_back || [];
+
+    document.getElementById('y-offset-slider').value = tpl.y_offset || 0;
+    document.getElementById('x-offset-slider').value = tpl.x_offset || 0;
+    updateOffsets();
+
+    clearMarkDots();
+    const marks = currentSide === 'front' ? marksFront : marksBack;
+    const baseIndex = currentSide === 'front' ? 0 : marksFront.length;
+    marks.forEach((m, i) => addMarkDot(m.x, m.y, baseIndex + i));
+    updateMarkList();
+
+    const double = marksBack.length > 0;
+    document.getElementById('cfg-double-sided-step3').value = double ? '1' : '0';
+    onDoubleSidedChange();
+
+    toast(`已加载模板: ${tpl.name}`, 'ok');
+  } catch (e) {
+    toast('加载失败: ' + e.message, 'err');
+  }
+}
+
+function getCurrentMarks() {
+  const marks = [];
+  document.querySelectorAll('.mark-dot').forEach(dot => {
+    marks.push({ x: parseFloat(dot.dataset.x), y: parseFloat(dot.dataset.y) });
+  });
+  return marks;
+}
+
+document.getElementById('mark-image').addEventListener('click', function(e) {
+  const img = e.target;
+  const rect = img.getBoundingClientRect();
+  let xPct = ((e.clientX - rect.left) / rect.width) * 100;
+  let yPct = ((e.clientY - rect.top) / rect.height) * 100;
+
+  if (!e.altKey) {
+    const snapped = snapPosition(xPct, yPct, null);
+    xPct = snapped.x;
+    yPct = snapped.y;
+  }
+
+  const currentMarks = document.querySelectorAll('.mark-dot').length;
+  const baseIndex = currentSide === 'front' ? 0 : marksFront.length;
+  addMarkDot(xPct, yPct, baseIndex + currentMarks);
+  updateMarkList();
+});
+
+document.getElementById('mark-image').addEventListener('contextmenu', function(e) {
+  e.preventDefault();
+  undoLastMark();
+});
+
+function snapPosition(x, y, excludeDot) {
+  const dots = document.querySelectorAll('.mark-dot');
+  let snappedX = x;
+  let snappedY = y;
+  dots.forEach(dot => {
+    if (dot === excludeDot) return;
+    const dx = Math.abs(x - parseFloat(dot.dataset.x));
+    const dy = Math.abs(y - parseFloat(dot.dataset.y));
+    if (dx < snapThreshold) snappedX = parseFloat(dot.dataset.x);
+    if (dy < snapThreshold) snappedY = parseFloat(dot.dataset.y);
+  });
+  return { x: snappedX, y: snappedY };
+}
+
+function getMarkText(index) {
+  if (sampleStudentScores.length > index && fullScores.length > index) {
+    return sampleStudentScores[index] + '/' + fullScores[index];
+  }
+  if (fullScores.length > index) {
+    return '?/' + fullScores[index];
+  }
+  return String(index + 1);
+}
+
+function addMarkDot(x, y, index) {
+  const container = document.getElementById('mark-container');
+  const dot = document.createElement('div');
+  dot.className = 'mark-dot';
+  dot.dataset.x = x.toFixed(2);
+  dot.dataset.y = y.toFixed(2);
+  dot.style.left = x.toFixed(2) + '%';
+  dot.style.top = y.toFixed(2) + '%';
+  dot.textContent = getMarkText(index);
+  dot.title = '第' + (index + 1) + '题 — 拖拽可移动位置';
+  dot.addEventListener('mousedown', onDotMouseDown);
+  container.appendChild(dot);
+}
+
+// ---- 拖拽标记点 ----
+function onDotMouseDown(e) {
+  e.stopPropagation();
+  e.preventDefault();
+  dragDot = e.target;
+  dragDot.classList.add('dragging');
+  dragDot.dataset.startX = e.clientX;
+  dragDot.dataset.startY = e.clientY;
+  dragDot.dataset.origLeft = dragDot.style.left;
+  dragDot.dataset.origTop = dragDot.style.top;
+}
+
+document.addEventListener('mousemove', function(e) {
+  if (!dragDot) return;
+  const img = document.getElementById('mark-image');
+  const imgRect = img.getBoundingClientRect();
+  let xPct = ((e.clientX - imgRect.left) / imgRect.width) * 100;
+  let yPct = ((e.clientY - imgRect.top) / imgRect.height) * 100;
+
+  xPct = Math.max(0, Math.min(100, xPct));
+  yPct = Math.max(0, Math.min(100, yPct));
+
+  if (!e.altKey) {
+    const snapped = snapPosition(xPct, yPct, dragDot);
+    xPct = snapped.x;
+    yPct = snapped.y;
+  }
+
+  dragDot.style.left = xPct.toFixed(2) + '%';
+  dragDot.style.top = yPct.toFixed(2) + '%';
+  dragDot.dataset.x = xPct.toFixed(2);
+  dragDot.dataset.y = yPct.toFixed(2);
+});
+
+document.addEventListener('mouseup', function(e) {
+  if (!dragDot) return;
+  dragDot.classList.remove('dragging');
+  dragDot = null;
+  updateMarkList();
+});
+
+function clearMarkDots() {
+  document.querySelectorAll('.mark-dot').forEach(d => d.remove());
+}
+
+function undoLastMark() {
+  const dots = document.querySelectorAll('.mark-dot');
+  if (dots.length) dots[dots.length - 1].remove();
+  updateMarkList();
+}
+
+function clearAllMarks() {
+  clearMarkDots();
+  marksFront = [];
+  marksBack = [];
+  currentSide = 'front';
+  document.getElementById('side-select').value = 'front';
+  updateMarkList();
+}
+
+function updateOffsets() {
+  const xVal = parseFloat(document.getElementById('x-offset-slider').value);
+  const yVal = parseFloat(document.getElementById('y-offset-slider').value);
+  document.getElementById('x-offset-value').textContent = xVal.toFixed(1) + '%';
+  document.getElementById('y-offset-value').textContent = yVal.toFixed(1) + '%';
+}
+
+function updateMarkList() {
+  const dots = document.querySelectorAll('.mark-dot');
+  const count = dots.length;
+  document.getElementById('mark-count').textContent = count;
+
+  const list = document.getElementById('mark-list');
+  if (!count) { list.innerHTML = ''; return; }
+
+  const xOff = parseFloat(document.getElementById('x-offset-slider').value);
+  const yOff = parseFloat(document.getElementById('y-offset-slider').value);
+  let html = '<table><thead><tr><th>小题序号</th><th>显示内容</th><th>原始X(%)</th><th>原始Y(%)</th><th>调整后X(%)</th><th>调整后Y(%)</th></tr></thead><tbody>';
+  dots.forEach((dot, i) => {
+    const x = parseFloat(dot.dataset.x);
+    const y = parseFloat(dot.dataset.y);
+    html += `<tr>
+      <td>第${i+1}题</td>
+      <td>${dot.textContent}</td>
+      <td>${x.toFixed(1)}</td>
+      <td>${y.toFixed(1)}</td>
+      <td>${(x + xOff).toFixed(1)}</td>
+      <td>${(y + yOff).toFixed(1)}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  list.innerHTML = html;
+}
+
+async function savePositions() {
+  const xOff = parseFloat(document.getElementById('x-offset-slider').value);
+  const yOff = parseFloat(document.getElementById('y-offset-slider').value);
+
+  // 保存当前面
+  if (currentSide === 'front') marksFront = getCurrentMarks();
+  else marksBack = getCurrentMarks();
+
+  // 保存正面位置
+  const posFront = marksFront.map(m => ({ x: m.x, y: m.y }));
+  if (posFront.length === 0) {
+    toast('请先在图片上点击标记至少一个位置', 'err');
+    return;
+  }
+  try {
+    const res = await fetch('/api/save-positions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job_id: jobId, side: 'front', positions: posFront, y_offset: yOff, x_offset: xOff }),
+    });
+    const data = await res.json();
+    if (data.error) { toast(data.error, 'err'); return; }
+    toast(`正面位置已保存：${data.count} 个标记点`, 'ok');
+  } catch (e) {
+    toast('保存失败: ' + e.message, 'err');
+    return;
+  }
+
+  // 如果是双面模式，保存背面
+  const doubleSided = document.getElementById('cfg-double-sided-step3').value === '1';
+  if (doubleSided) {
+    if (currentSide !== 'back') {
+      if (confirm('当前在正面，是否切换到背面标记？\n（背面位置将使用当前已保存的背面标记）')) {
+        document.getElementById('side-select').value = 'back';
+        switchSide();
+        toast('请先在背面图片上点击标记位置，然后再次点击"保存位置"', 'info');
+        return;
+      }
+    }
+    const posBack = marksBack.map(m => ({ x: m.x, y: m.y }));
+    if (posBack.length === 0) {
+      toast('双面模式需要标记背面的位置，请切换并点击标记', 'err');
+      return;
+    }
+    try {
+      await fetch('/api/save-positions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job_id: jobId, side: 'back', positions: posBack, y_offset: yOff, x_offset: xOff }),
+      });
+    } catch (e) {}
+  }
+
+  // 自动保存模板（以当前日期时间命名）
+  try {
+    const now = new Date();
+    const autoName = now.getFullYear() + '-' +
+      String(now.getMonth() + 1).padStart(2, '0') + '-' +
+      String(now.getDate()).padStart(2, '0') + ' ' +
+      String(now.getHours()).padStart(2, '0') + ':' +
+      String(now.getMinutes()).padStart(2, '0') + ':' +
+      String(now.getSeconds()).padStart(2, '0');
+    await fetch('/api/position-templates/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: autoName,
+        positions_front: marksFront,
+        positions_back: marksBack,
+        y_offset: yOff,
+        x_offset: xOff,
+      }),
+    });
+  } catch (e) {}
+
+  goToStep(4);
+}
+
+// ============================================================
+//  步骤5: 成品预览
+// ============================================================
+async function generatePreview() {
+  const status = document.getElementById('preview-status');
+  const btn = document.getElementById('btn-generate-preview');
+  status.textContent = '正在生成预览...';
+  btn.disabled = true;
+
+  const doubleSided = document.getElementById('cfg-double-sided-step3').value === '1';
+  const fontSize = parseInt(document.getElementById('cfg-font-size').value);
+
+  try {
+    const res = await fetch('/api/preview-result', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        job_id: jobId,
+        font_size: fontSize,
+        double_sided: doubleSided,
+      }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      status.innerHTML = `<span style="color:#e74c3c;">${data.error}</span>`;
+      btn.disabled = false;
+      return;
+    }
+
+    status.textContent = '预览已生成（以下是第一名学生的效果）';
+
+    // 正面预览
+    const frontWrap = document.getElementById('preview-front-wrap');
+    const frontImg = document.getElementById('preview-front-img');
+    frontImg.src = data.front_preview_url + '?t=' + Date.now();
+    frontWrap.classList.remove('hidden');
+
+    // 背面预览
+    const backWrap = document.getElementById('preview-back-wrap');
+    if (data.back_preview_url) {
+      const backImg = document.getElementById('preview-back-img');
+      backImg.src = data.back_preview_url + '?t=' + Date.now();
+      backWrap.classList.remove('hidden');
+    } else {
+      backWrap.classList.add('hidden');
+    }
+
+  } catch (e) {
+    status.innerHTML = `<span style="color:#e74c3c;">生成预览失败: ${e.message}</span>`;
+  }
+  btn.disabled = false;
+}
+
+// ============================================================
+//  步骤6: 处理
+// ============================================================
+async function startProcess() {
+  const btn = document.getElementById('btn-start-process');
+  btn.disabled = true;
+  btn.textContent = '正在处理...';
+
+  const doubleSided = document.getElementById('cfg-double-sided-step3').value === '1';
+  const useBarcode = document.getElementById('cfg-use-barcode').value === '1';
+  const fontSize = parseInt(document.getElementById('cfg-font-size').value);
+  const classFolders = document.getElementById('cfg-class-folders').value === '1';
+
+  document.getElementById('progress-bar').classList.remove('hidden');
+  document.getElementById('progress-fill').style.width = '30%';
+  document.getElementById('process-status-text').textContent = '正在匹配考号并生成图片...';
+
+  try {
+    const res = await fetch('/api/process', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        job_id: jobId,
+        double_sided: doubleSided,
+        use_barcode: useBarcode,
+        font_size: fontSize,
+        create_class_folders: classFolders,
+      }),
+    });
+    const data = await res.json();
+    document.getElementById('progress-fill').style.width = '100%';
+
+    if (data.error) {
+      document.getElementById('process-status-text').textContent = '处理失败';
+      document.getElementById('process-result').innerHTML = `<p style="color:#e74c3c;">${data.error}</p>`;
+      btn.disabled = false;
+      btn.textContent = '重试';
+      return;
+    }
+
+    document.getElementById('process-status-text').textContent = '处理完成！';
+    let resultHtml = `
+      <p><span class="tag tag-ok">✓ 成功匹配 <strong>${data.matched}</strong> 名学生</span></p>`;
+
+    if (data.unmatched_students > 0) {
+      resultHtml += `<p><span class="tag tag-warn">⚠ ${data.unmatched_students} 名学生有成绩但无对应答题卡</span></p>`;
+    }
+    if (data.unmatched_images > 0) {
+      resultHtml += `<p><span class="tag tag-warn">⚠ ${data.unmatched_images} 张答题卡未能匹配到成绩（已放入"无条码"文件夹）</span></p>`;
+    }
+
+    document.getElementById('process-result').innerHTML = resultHtml;
+    document.getElementById('save-controls').classList.remove('hidden');
+    document.getElementById('btn-save').classList.remove('hidden');
+    document.getElementById('btn-start-process').classList.add('hidden');
+
+  } catch (e) {
+    document.getElementById('process-status-text').textContent = '处理出错';
+    document.getElementById('process-result').innerHTML = `<p style="color:#e74c3c;">${e.message}</p>`;
+  }
+
+  btn.disabled = false;
+  btn.textContent = '开始处理';
+  goToStep(6);
+}
+
+async function pickAndSaveFolder() {
+  // 检查浏览器是否支持 File System Access API
+  if (!('showDirectoryPicker' in window)) {
+    document.getElementById('save-fallback').classList.remove('hidden');
+    toast('当前浏览器不支持原生文件夹选择，请使用下方输入框', 'info');
+    return;
+  }
+
+  const btn = document.getElementById('btn-save');
+  const pickBtn = document.getElementById('btn-pick-folder');
+  const updateButtons = (disabled, text) => {
+    if (btn) { btn.disabled = disabled; btn.textContent = text; }
+    if (pickBtn) { pickBtn.disabled = disabled; pickBtn.textContent = text; }
+  };
+
+  let dirHandle;
+  try {
+    dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+  } catch (e) {
+    if (e.name === 'AbortError') return;  // 用户取消
+    toast('打开文件夹选择框失败: ' + e.message, 'err');
+    return;
+  }
+
+  updateButtons(true, '正在获取文件列表...');
+
+  try {
+    const listRes = await fetch('/api/output-file-list/' + jobId);
+    const listData = await listRes.json();
+    if (listData.error) { toast(listData.error, 'err'); updateButtons(false, '保存到本地并清理缓存'); return; }
+
+    const files = listData.files;
+    if (!files.length) { toast('没有可保存的文件', 'err'); updateButtons(false, '保存到本地并清理缓存'); return; }
+
+    let saved = 0;
+    const errors = [];
+
+    for (const file of files) {
+      updateButtons(true, `正在保存... (${saved + 1}/${files.length})`);
+
+      try {
+        const fileRes = await fetch('/api/output-file/' + jobId + '/' + encodeURI(file.path));
+        if (!fileRes.ok) { errors.push(`${file.path}: 下载失败`); continue; }
+        const blob = await fileRes.blob();
+
+        const parts = file.path.replace(/\\/g, '/').split('/');
+        let currentHandle = dirHandle;
+        for (let i = 0; i < parts.length - 1; i++) {
+          currentHandle = await currentHandle.getDirectoryHandle(parts[i], { create: true });
+        }
+
+        const fileName = parts[parts.length - 1];
+        const fileHandle = await currentHandle.getFileHandle(fileName, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+
+        saved++;
+      } catch (e) {
+        errors.push(`${file.path}: ${e.message}`);
+      }
+    }
+
+    // 清理服务器缓存
+    updateButtons(true, '正在清理缓存...');
+    try { await fetch('/api/cleanup/' + jobId, { method: 'POST' }); } catch (e) {}
+
+    if (errors.length) {
+      toast(`已保存 ${saved}/${files.length} 个文件，${errors.length} 个失败，缓存已清理`, 'err');
+    } else {
+      toast(`已保存 ${saved} 个文件到选定文件夹，缓存已清理`, 'ok');
+    }
+
+    document.getElementById('process-status-text').textContent = '保存完成，缓存已清理！';
+    document.getElementById('save-controls').classList.add('hidden');
+    if (btn) btn.classList.add('hidden');
+
+  } catch (e) {
+    toast('保存失败: ' + e.message, 'err');
+  }
+
+  updateButtons(false, '保存到本地并清理缓存');
+}
+
+// 回退：不支持 showDirectoryPicker 的浏览器
+async function saveToFolderFallback() {
+  const targetPath = document.getElementById('save-path').value.trim();
+  if (!targetPath) { toast('请先输入保存路径', 'err'); return; }
+
+  const btn = document.getElementById('btn-save');
+  if (btn) { btn.disabled = true; btn.textContent = '正在拷贝...'; }
+
+  try {
+    const res = await fetch('/api/save-to-folder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job_id: jobId, target_path: targetPath }),
+    });
+    const data = await res.json();
+    if (data.error) { toast(data.error, 'err'); if (btn) { btn.disabled = false; btn.textContent = '保存到本地并清理缓存'; } return; }
+
+    let msg = `已保存 ${data.copied_files} 个文件到 ${data.target_path}`;
+    if (data.errors.length) msg += `，但有 ${data.errors.length} 个错误`;
+    msg += '，缓存已清理。';
+    toast(msg, 'ok');
+    document.getElementById('process-status-text').textContent = '保存完成，缓存已清理！';
+    document.getElementById('save-controls').classList.add('hidden');
+    if (btn) btn.classList.add('hidden');
+
+  } catch (e) {
+    toast('保存失败: ' + e.message, 'err');
+    if (btn) { btn.disabled = false; btn.textContent = '保存到本地并清理缓存'; }
+  }
+}
+
+// ============================================================
+//  通知
+// ============================================================
+function toast(msg, type) {
+  const el = document.createElement('div');
+  el.className = 'toast toast-' + (type === 'err' ? 'err' : type === 'ok' ? 'ok' : 'info');
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 3000);
+}
+
+// 启动
+init();
+</script>
+
+</body>
+</html>
