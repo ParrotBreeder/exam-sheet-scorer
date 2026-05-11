@@ -17,6 +17,7 @@ import threading
 import traceback
 import multiprocessing
 import concurrent.futures
+import concurrent.futures.process  # 显式导入以确保 BrokenProcessPool 在打包版可用
 from io import BytesIO
 from pathlib import Path
 from collections import defaultdict, Counter
@@ -30,7 +31,8 @@ import numpy as np
 try:
     from pyzbar import pyzbar
     HAS_PYZBAR = True
-except ImportError:
+except Exception:
+    # DLL 加载失败 / VC++ 缺失等场景会抛非 ImportError 的异常
     HAS_PYZBAR = False
 
 
@@ -50,25 +52,26 @@ def _check_pyzbar_functional() -> bool:
 try:
     import fitz  # PyMuPDF
     HAS_PYMUPDF = True
-except ImportError:
+except Exception:
     HAS_PYMUPDF = False
 
 try:
     import openpyxl
     HAS_OPENPYXL = True
-except ImportError:
+except Exception:
+    # 不仅捕获 ImportError：xlsx 链 (openpyxl -> xml -> pyexpat) 在打包后可能因 DLL 缺失抛非 ImportError
     HAS_OPENPYXL = False
 
 try:
     import xlrd
     HAS_XLRD = True
-except ImportError:
+except Exception:
     HAS_XLRD = False
 
 try:
     from pypinyin import lazy_pinyin, Style
     HAS_PYPINYIN = True
-except ImportError:
+except Exception:
     HAS_PYPINYIN = False
 
 # ---- Flask 初始化 ----
@@ -78,17 +81,37 @@ app.secret_key = os.urandom(24)
 app.config['MAX_CONTENT_LENGTH'] = None
 
 # 兼容 PyInstaller 打包后的路径
-if getattr(sys, 'frozen', False):
+IS_FROZEN = getattr(sys, 'frozen', False)
+if IS_FROZEN:
     if hasattr(sys, '_MEIPASS'):
         BASE_DIR = Path(sys._MEIPASS)
     else:
         exe_dir = Path(sys.executable).parent
         internal_dir = exe_dir / '_internal'
         BASE_DIR = internal_dir if internal_dir.exists() else exe_dir
+    # 打包版：所有 runtime 数据放到用户级 LOCALAPPDATA，不污染安装目录
+    _local_appdata = os.environ.get('LOCALAPPDATA') or str(Path.home() / 'AppData' / 'Local')
+    APP_USER_DIR = Path(_local_appdata) / '答题卡小题分匹配系统'
 else:
     BASE_DIR = Path(__file__).parent
+    # 开发版：仍放项目根目录，方便调试观察
+    APP_USER_DIR = BASE_DIR
 
-DATA_DIR = BASE_DIR / 'data'
+APP_USER_DIR.mkdir(parents=True, exist_ok=True)
+
+DATA_DIR = APP_USER_DIR / 'data'
+TEMPLATES_POS_DIR = APP_USER_DIR / 'templates_pos'
+TEMPLATES_POS_DIR.mkdir(parents=True, exist_ok=True)
+
+# 打包版首次运行：把内置 templates_pos 默认模板拷贝到用户目录
+if IS_FROZEN:
+    _bundled_tpos = BASE_DIR / 'templates_pos'
+    if _bundled_tpos.exists() and not any(TEMPLATES_POS_DIR.glob('*.json')):
+        for _p in _bundled_tpos.glob('*.json'):
+            try:
+                shutil.copy2(str(_p), str(TEMPLATES_POS_DIR / _p.name))
+            except Exception:
+                pass
 
 app.template_folder = str(BASE_DIR / 'templates')
 
@@ -109,25 +132,97 @@ _shutdown_event = threading.Event()
 _pdf_executor: 'concurrent.futures.ProcessPoolExecutor | None' = None
 _pdf_executor_workers = 0
 _pdf_executor_lock = threading.Lock()
+# 池失效计数：避免反复尝试已知失败的进程池；超过阈值后永久退化单进程
+_pdf_executor_failures = 0
+_PDF_EXECUTOR_MAX_FAILURES = 2
+
+
+def _pdf_worker_warmup():
+    """ProcessPoolExecutor 预热任务：让 worker 进程完成首次模块导入并执行函数，
+    把潜在的"worker 启动失败"在用户提交真实工作前就暴露出来。
+    返回 worker 进程 PID，用于日志。
+    """
+    import fitz  # 验证 worker 进程能导入 PyMuPDF（DLL 路径等问题会导致非 ImportError 异常）
+    return os.getpid()
 
 
 def _get_pdf_executor():
-    """懒初始化持久化进程池。仅在 MainProcess 中创建，避免子进程内递归 spawn。"""
-    global _pdf_executor, _pdf_executor_workers
+    """懒初始化持久化进程池。仅在 MainProcess 中创建，避免子进程内递归 spawn。
+
+    首次创建池后会派发若干 warmup 任务并等待完成，确认所有 worker 能正常启动；
+    若 warmup 失败（worker 启动错、DLL 缺失等），关闭池并返回 None，调用方走单进程。
+    池失效（broken）时返回 None；连续失败超过阈值后永久退化单进程。
+    """
+    global _pdf_executor, _pdf_executor_workers, _pdf_executor_failures
     if multiprocessing.current_process().name != 'MainProcess':
         return None
+    if _pdf_executor_failures >= _PDF_EXECUTOR_MAX_FAILURES:
+        return None
     with _pdf_executor_lock:
-        if _pdf_executor is None:
-            try:
-                n = min(os.cpu_count() or 4, 8)
-                _pdf_executor = concurrent.futures.ProcessPoolExecutor(max_workers=n)
-                _pdf_executor_workers = n
-                print(f'[pdf_pool] 启动 PDF 渲染进程池，{n} 个 worker')
-            except Exception as e:
-                print(f'[pdf_pool] 启动失败，降级单进程: {e}')
+        # 缓存池仍可用则直接返回；broken 则丢弃后重建
+        if _pdf_executor is not None:
+            if getattr(_pdf_executor, '_broken', False):
+                try:
+                    _pdf_executor.shutdown(wait=False)
+                except Exception:
+                    pass
                 _pdf_executor = None
                 _pdf_executor_workers = 0
+            else:
+                return _pdf_executor
+
+        try:
+            n = min(os.cpu_count() or 4, 8)
+            pool = concurrent.futures.ProcessPoolExecutor(max_workers=n)
+        except Exception as e:
+            print(f'[pdf_pool] 启动失败，降级单进程: {e}')
+            _pdf_executor = None
+            _pdf_executor_workers = 0
+            _pdf_executor_failures += 1
+            return None
+
+        # 预热：派发 n 个轻量任务，强制所有 worker 进程完成首次启动；
+        # 任一 worker 启动失败会在 fut.result() 抛 BrokenProcessPool，
+        # 比让用户上传 PDF 时才发现要早得多。
+        try:
+            warmup_futs = [pool.submit(_pdf_worker_warmup) for _ in range(n)]
+            pids = []
+            for fut in warmup_futs:
+                pids.append(fut.result(timeout=60))
+            print(f'[pdf_pool] PDF 渲染进程池已启动 + 预热完成，{n} 个 worker（PIDs={pids}）')
+        except Exception as we:
+            print(f'[pdf_pool] worker 预热失败（首次 PDF 将走单进程兜底）: {we}')
+            try:
+                try:
+                    pool.shutdown(wait=False, cancel_futures=True)
+                except TypeError:
+                    pool.shutdown(wait=False)
+            except Exception:
+                pass
+            _pdf_executor = None
+            _pdf_executor_workers = 0
+            _pdf_executor_failures += 1
+            return None
+
+        _pdf_executor = pool
+        _pdf_executor_workers = n
     return _pdf_executor
+
+
+def _reset_pdf_executor():
+    """标记当前进程池失效（在 BrokenProcessPool 后调用），下次 _get_pdf_executor 自动重建。"""
+    global _pdf_executor, _pdf_executor_workers
+    with _pdf_executor_lock:
+        if _pdf_executor is not None:
+            try:
+                try:
+                    _pdf_executor.shutdown(wait=False, cancel_futures=True)
+                except TypeError:
+                    _pdf_executor.shutdown(wait=False)
+            except Exception:
+                pass
+            _pdf_executor = None
+            _pdf_executor_workers = 0
 
 
 def _shutdown_pdf_executor():
@@ -145,11 +240,11 @@ def _shutdown_pdf_executor():
 
 def cleanup_data():
     """清理 data 缓存目录"""
-    data_dir = BASE_DIR / 'data'
+    data_dir = DATA_DIR
     try:
         if data_dir.exists():
             shutil.rmtree(str(data_dir), ignore_errors=True)
-        data_dir.mkdir(exist_ok=True)
+        data_dir.mkdir(parents=True, exist_ok=True)
         print(f'[init] 缓存目录已就绪: {data_dir}')
     except Exception as e:
         print(f'[init] 缓存目录初始化失败: {e}')
@@ -685,7 +780,8 @@ def _render_single_page_worker(pdf_path: str, page_idx: int, out_path: str) -> d
     """
     try:
         import fitz as _fitz
-    except ImportError:
+    except Exception:
+        # DLL 加载失败等场景会抛非 ImportError 异常（尤其在 PyInstaller worker 进程中）
         return {'ok': False, 'error': 'fitz/PyMuPDF 在 worker 进程中不可用'}
 
     doc = None
@@ -748,7 +844,7 @@ def _do_pdf_convert(job_id: str, progress_cb, pdf_info_list: list[dict], img_dir
         executor = _get_pdf_executor() if pages >= MP_MIN_PAGES else None
 
         if executor is None:
-            # 单进程降级路径（单页 PDF 或进程池不可用）
+            # 单进程降级路径（单页 PDF 或进程池不可用 / 预热失败）
             progress_cb(converted_total, f'{info["prefix"]}：单进程渲染中... ({converted_total}/{total_pages})')
             for p_idx, out_path in page_assignments:
                 if _shutdown_event.is_set():
@@ -763,6 +859,7 @@ def _do_pdf_convert(job_id: str, progress_cb, pdf_info_list: list[dict], img_dir
             # 多进程：每页一个 future，进度按页粒度更新
             progress_cb(converted_total, f'{info["prefix"]}：派发 {pages} 页到 {_pdf_executor_workers} 个进程...')
             futures = []
+            pool_broken = False
             try:
                 for p_idx, out_path in page_assignments:
                     futures.append(executor.submit(_render_single_page_worker, info['path'], p_idx, out_path))
@@ -770,6 +867,13 @@ def _do_pdf_convert(job_id: str, progress_cb, pdf_info_list: list[dict], img_dir
                 progress_cb(converted_total, f'{info["prefix"]}：worker 进程启动中... ({converted_total}/{total_pages})')
 
                 for fut in concurrent.futures.as_completed(futures):
+                    if pool_broken:
+                        # 池已损坏，后续 future 都会抛同样错；跳过，下面单进程兜底
+                        try:
+                            fut.cancel()
+                        except Exception:
+                            pass
+                        continue
                     try:
                         r = fut.result()
                         if r.get('ok'):
@@ -777,21 +881,38 @@ def _do_pdf_convert(job_id: str, progress_cb, pdf_info_list: list[dict], img_dir
                         else:
                             errors.append(f'{info["prefix"]}: {r.get("error", "未知错误")}')
                         progress_cb(converted_total, f'{info["prefix"]}：渲染中 {converted_total}/{total_pages}')
+                    except concurrent.futures.process.BrokenProcessPool as bpe:
+                        pool_broken = True
+                        errors.append(f'{info["prefix"]}: 进程池崩溃，本 PDF 剩余页转单进程渲染: {bpe}')
+                        progress_cb(converted_total, f'{info["prefix"]}：进程池崩溃，单进程兜底中...')
+                        _reset_pdf_executor()
                     except Exception as e:
                         errors.append(f'{info["prefix"]} worker 异常: {e}')
                         traceback.print_exc()
+            except concurrent.futures.process.BrokenProcessPool as bpe:
+                # 提交阶段就抛 BrokenProcessPool（如池在 submit 中被发现 broken）
+                pool_broken = True
+                errors.append(f'{info["prefix"]}: 进程池在提交时崩溃，降级单进程: {bpe}')
+                _reset_pdf_executor()
             except Exception as e:
-                # 提交失败（如进程池已关闭）：降级到当前进程
+                # 提交失败（如进程池已关闭等）：降级到当前进程
+                pool_broken = True
                 errors.append(f'{info["prefix"]}: 进程池提交失败，降级单进程: {e}')
+                _reset_pdf_executor()
+
+            if pool_broken:
+                # 单进程兜底：把还没渲染成功的页（输出文件不存在）重渲一遍
                 for p_idx, out_path in page_assignments:
                     if _shutdown_event.is_set():
                         break
+                    if Path(out_path).exists():
+                        continue
                     r = _render_single_page_worker(info['path'], p_idx, out_path)
                     if r.get('ok'):
                         converted_total += 1
                     else:
-                        errors.append(f'{info["prefix"]}: {r.get("error", "未知错误")}')
-                    progress_cb(converted_total, f'{info["prefix"]}：渲染中 {converted_total}/{total_pages}')
+                        errors.append(f'{info["prefix"]}: 单进程兜底失败: {r.get("error", "未知错误")}')
+                    progress_cb(converted_total, f'{info["prefix"]}：单进程兜底 {converted_total}/{total_pages}')
 
     # 清理原始 PDF 文件（已转为 JPG）
     for info in pdf_info_list:
@@ -1743,8 +1864,8 @@ def save_position_template():
     if not positions_front:
         return jsonify({'error': '没有正面位置数据可保存'}), 400
 
-    template_dir = BASE_DIR / 'templates_pos'
-    template_dir.mkdir(exist_ok=True)
+    template_dir = TEMPLATES_POS_DIR
+    template_dir.mkdir(parents=True, exist_ok=True)
 
     safe_name = re.sub(r'[^\w\-]', '_', name)
     data = {
@@ -1763,7 +1884,7 @@ def save_position_template():
 @app.route('/api/position-templates/list')
 def list_position_templates():
     """列出已保存的位置模板"""
-    template_dir = BASE_DIR / 'templates_pos'
+    template_dir = TEMPLATES_POS_DIR
     if not template_dir.exists():
         return jsonify({'templates': []})
 
@@ -1790,7 +1911,7 @@ def list_position_templates():
 @app.route('/api/position-templates/delete/<name>', methods=['POST'])
 def delete_position_template(name):
     """删除位置模板"""
-    template_dir = BASE_DIR / 'templates_pos'
+    template_dir = TEMPLATES_POS_DIR
     safe_name = re.sub(r'[^\w\-]', '_', name)
     path = template_dir / f'{safe_name}.json'
     if path.exists():
@@ -1802,7 +1923,7 @@ def delete_position_template(name):
 @app.route('/api/position-templates/clear-all', methods=['POST'])
 def clear_all_position_templates():
     """清除所有位置模板"""
-    template_dir = BASE_DIR / 'templates_pos'
+    template_dir = TEMPLATES_POS_DIR
     if template_dir.exists():
         count = 0
         for p in template_dir.glob('*.json'):

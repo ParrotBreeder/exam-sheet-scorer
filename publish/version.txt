@@ -1,13 +1,42 @@
-答题卡小题分匹配系统 v3.0.0
+答题卡小题分匹配系统 v3.0.3
 Build date: 2026-05-11
 
-更新内容:
-- PDF 转图片改为真正的多进程并行（ProcessPoolExecutor）：单个 PDF 的页面分发到多个 worker 进程同时渲染，绕过 GIL，CPU 多核可被打满
-- 持久化进程池：跨 PDF 上传复用 worker 进程，避免每次重新 spawn
-- 输出文件名改为 {全局序号:05d}_{原 PDF stem}.jpg 命名，多次上传 / 重名 PDF 不会覆盖；按上传顺序自然排序
-- 进度条改为按页粒度更新（每完成一页就刷新进度），告别"已经在转换却还显示准备中"的假进度
-- 上传过程错误隔离：单个 PDF 失败不影响其它 PDF，错误信息显式回传前端
-- 修复 _do_pdf_convert 中 fitz.open 在 try 块外、单 PDF 异常会让任务整体崩掉的 bug
-- 取消 1GB 上传大小限制（本地单机使用，磁盘空间即上限）
-- PyInstaller 打包加 multiprocessing.freeze_support()，子进程能正确启动
-- 新增项目文档 CLAUDE.md，详细描述模块结构、API、设计决策
+v3.0.3 更新内容:
+- 修复"第一个 PDF 无法转换图片、第二个却可以"的 bug（根本修复）：
+  - 根因：打包版 worker 进程中 fitz import 抛出非 ImportError 异常（DLL 加载失败），
+    但 _render_single_page_worker 仅捕获 ImportError，导致静默失败；
+    _pdf_worker_warmup 不测试 fitz 可导入性，导致"warmup 成功→池建立→worker
+    无法渲染→无输出→池未破损→后续 PDF 复用同样损坏的池"的静默死循环
+  - 修复 1：_render_single_page_worker 的 fitz import 改为 catch Exception
+  - 修复 2：_pdf_worker_warmup 增加 fitz import 测试，worker 不可用时 warmup 失败，
+    自动降级到主进程单线程渲染（可靠但较慢）
+  - 修复以 monkey-patch 形式通过 entry_patched.py + patch_workers.py 注入，
+    不修改 app.py 源码
+  - 构建入口从 app.py 改为 entry_patched.py（wrapper）
+
+v3.0.2 更新内容:
+- 修复"第一个 PDF 转换崩溃、后续 PDF 才能正常转换"的 bug：
+  - ProcessPoolExecutor 池在首次启动 worker 时若失败（BrokenProcessPool），首个 PDF 的所有页 future 会全部失败，但旧代码只在 submit 阶段兜底，没处理执行阶段的 BrokenProcessPool，导致第一个 PDF 直接报错；第二个 PDF submit 时拿到 broken 池才进降级路径，反而成功
+  - 新增 worker 预热：池创建后立即派发 n 个 warmup 任务并等待结果，启动失败立刻暴露，自动关闭池走单进程
+  - 执行阶段捕获 BrokenProcessPool：本 PDF 剩余页转单进程兜底，标记池失效，下次自动重建
+  - 连续失败超过阈值（2 次）后永久退化单进程，避免无谓重试
+- 修复 pyzbar import 异常捕获范围：from ImportError -> Exception，与其他可选依赖保持一致（DLL 加载失败会抛非 ImportError）
+- 显式导入 concurrent.futures.process，确保 PyInstaller 打包后 BrokenProcessPool 可用
+
+v3.0.1 更新内容:
+- 修复打包版 xlsx 解析失败：补打包 libexpat.dll / expat.dll，openpyxl 现在能正常工作
+- 修复打包版"双击 exe 没反应"：spec 改为 console=True，运行时弹出控制台窗口展示 Flask 日志，关闭窗口即停止服务
+- 启动脚本改为轮询 /api/dependencies 探测服务就绪（最多 30s），不再依赖固定 4s 超时
+- 缓存与位置模板目录迁移到 %LOCALAPPDATA%\答题卡小题分匹配系统\，不再污染安装目录；首次启动自动从内置默认拷贝 templates_pos
+- 第2步 PDF 转换中禁用"下一步：人工匹配"按钮；第3步条码扫描中禁用"下一步：标记位置"按钮，防止用户在异步任务未完成时跳步
+- 扩大可选依赖 import 异常捕获范围（DLL 加载失败会抛 ImportError 之外的异常，原 except 漏掉）
+
+v3.0.0 已有内容:
+- PDF 转图片改为真正的多进程并行（ProcessPoolExecutor）：单个 PDF 的页面分发到多个 worker 进程同时渲染，绕过 GIL
+- 持久化进程池跨上传复用 worker 进程
+- 输出文件名改为 {全局序号:05d}_{prefix}.jpg，多次/重名上传不会覆盖，按上传顺序排序
+- 进度条按页粒度更新
+- 单 PDF 错误隔离
+- 取消 1GB 上传大小限制
+- PyInstaller 入口加 multiprocessing.freeze_support()
+- 新增 CLAUDE.md 项目文档
