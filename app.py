@@ -2,6 +2,7 @@
 答题卡小题分匹配系统 - 主程序
 将学生小题分叠加到扫描答题卡上，生成分析用图片
 """
+from __future__ import annotations
 import os
 import re
 import csv
@@ -12,10 +13,13 @@ import atexit
 import signal
 import shutil
 import zipfile
+import threading
 import traceback
+import multiprocessing
+import concurrent.futures
 from io import BytesIO
 from pathlib import Path
-from collections import defaultdict
+from collections import defaultdict, Counter
 
 from flask import Flask, render_template, request, jsonify, send_file
 from werkzeug.utils import secure_filename
@@ -28,6 +32,20 @@ try:
     HAS_PYZBAR = True
 except ImportError:
     HAS_PYZBAR = False
+
+
+def _check_pyzbar_functional() -> bool:
+    """测试 pyzbar 是否能实际解码（仅 import 成功不代表可用，还需 VC++ 运行时）。
+    解码失败时主动返回 False，避免静默丢失所有条码。"""
+    if not HAS_PYZBAR:
+        return False
+    try:
+        from PIL import Image as _PILImage
+        test_img = _PILImage.new('L', (100, 100))
+        pyzbar.decode(test_img)
+        return True
+    except Exception:
+        return False
 
 try:
     import fitz  # PyMuPDF
@@ -47,18 +65,23 @@ try:
 except ImportError:
     HAS_XLRD = False
 
+try:
+    from pypinyin import lazy_pinyin, Style
+    HAS_PYPINYIN = True
+except ImportError:
+    HAS_PYPINYIN = False
+
 # ---- Flask 初始化 ----
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
-app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1GB
+# 不限制上传大小（本地单机使用，磁盘空间就是上限）
+app.config['MAX_CONTENT_LENGTH'] = None
 
 # 兼容 PyInstaller 打包后的路径
 if getattr(sys, 'frozen', False):
     if hasattr(sys, '_MEIPASS'):
-        # --onefile 或新版 --onedir: 数据在 _MEIPASS / _internal 中
         BASE_DIR = Path(sys._MEIPASS)
     else:
-        # 旧版 --onedir: 数据在 exe 同级目录
         exe_dir = Path(sys.executable).parent
         internal_dir = exe_dir / '_internal'
         BASE_DIR = internal_dir if internal_dir.exists() else exe_dir
@@ -67,18 +90,61 @@ else:
 
 DATA_DIR = BASE_DIR / 'data'
 
-# 告诉 Flask 模板和静态文件的位置
 app.template_folder = str(BASE_DIR / 'templates')
+
+
+@app.errorhandler(413)
+def request_entity_too_large(e):
+    # MAX_CONTENT_LENGTH 已设为 None，正常情况下不会触发；保留兜底
+    return jsonify({'error': '请求体过大，被底层服务器拒绝。请尝试分批上传。'}), 413
+
 
 # 内存中存储 job 配置
 jobs = {}
 
+_cleaned = False
+_shutdown_event = threading.Event()
 
-_cleaned = False  # 防止重复清理
+# PDF 渲染持久化进程池（懒初始化，跨上传共用）
+_pdf_executor: 'concurrent.futures.ProcessPoolExecutor | None' = None
+_pdf_executor_workers = 0
+_pdf_executor_lock = threading.Lock()
+
+
+def _get_pdf_executor():
+    """懒初始化持久化进程池。仅在 MainProcess 中创建，避免子进程内递归 spawn。"""
+    global _pdf_executor, _pdf_executor_workers
+    if multiprocessing.current_process().name != 'MainProcess':
+        return None
+    with _pdf_executor_lock:
+        if _pdf_executor is None:
+            try:
+                n = min(os.cpu_count() or 4, 8)
+                _pdf_executor = concurrent.futures.ProcessPoolExecutor(max_workers=n)
+                _pdf_executor_workers = n
+                print(f'[pdf_pool] 启动 PDF 渲染进程池，{n} 个 worker')
+            except Exception as e:
+                print(f'[pdf_pool] 启动失败，降级单进程: {e}')
+                _pdf_executor = None
+                _pdf_executor_workers = 0
+    return _pdf_executor
+
+
+def _shutdown_pdf_executor():
+    global _pdf_executor
+    with _pdf_executor_lock:
+        if _pdf_executor is not None:
+            try:
+                _pdf_executor.shutdown(wait=False, cancel_futures=True)
+            except TypeError:
+                _pdf_executor.shutdown(wait=False)
+            except Exception:
+                pass
+            _pdf_executor = None
 
 
 def cleanup_data():
-    """清理 data 缓存目录（先删后建，保证干净）"""
+    """清理 data 缓存目录"""
     data_dir = BASE_DIR / 'data'
     try:
         if data_dir.exists():
@@ -90,30 +156,32 @@ def cleanup_data():
 
 
 def _signal_handler(signum, frame):
-    """捕获 Ctrl+C / kill 信号，先清理再退出"""
     global _cleaned
     print(f'\n[signal] 收到信号 {signum}，正在退出...')
+    _shutdown_event.set()
     if not _cleaned:
         _cleaned = True
+        _shutdown_pdf_executor()
         cleanup_data()
     sys.exit(0)
 
 
 def _atexit_cleanup():
-    """atexit 钩子：仅在未被 signal handler 清理过时才执行"""
     global _cleaned
     if not _cleaned:
         _cleaned = True
+        _shutdown_event.set()
+        _shutdown_pdf_executor()
         cleanup_data()
 
 
-# 启动时清理旧缓存（最可靠：即使上次非正常退出也能清掉残留）
-cleanup_data()
-
-# 退出时清理（Ctrl+C / 正常退出）
-atexit.register(_atexit_cleanup)
-signal.signal(signal.SIGINT, _signal_handler)
-signal.signal(signal.SIGTERM, _signal_handler)
+# 仅在主进程中执行清理和注册信号（Windows spawn 子进程重新导入本模块时跳过）
+# 注：不能用 parent_process()——spawn 模式不会设置 _parent_process，它永远为 None。
+if multiprocessing.current_process().name == 'MainProcess':
+    cleanup_data()
+    atexit.register(_atexit_cleanup)
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
 
 
 # ============================================================
@@ -121,28 +189,80 @@ signal.signal(signal.SIGTERM, _signal_handler)
 # ============================================================
 
 def get_job_dir(job_id: str) -> Path:
-    """获取或创建 job 目录"""
     d = DATA_DIR / job_id
     d.mkdir(exist_ok=True)
     return d
 
 
+# ============================================================
+#  进度追踪（用于前端进度条）
+# ============================================================
+
+def _set_progress(job_id: str, task: str, current: int, total: int, message: str = '', **extra):
+    """更新任务的进度信息"""
+    job = jobs.get(job_id)
+    if job:
+        job['progress'] = {'task': task, 'current': current, 'total': total, 'message': message, **extra}
+
+
+def _start_async_task(job_id: str, task_name: str, total: int, target_fn, *args):
+    """在后台线程中运行任务，自动管理进度。target_fn(job_id, progress_cb, *args) 会在后台线程中被调用。"""
+    job = jobs.get(job_id)
+    if not job:
+        return
+
+    _set_progress(job_id, task_name, 0, total, '正在准备...')
+
+    def progress_cb(current: int, message: str = ''):
+        _set_progress(job_id, task_name, current, total, message)
+
+    def worker():
+        try:
+            result = target_fn(job_id, progress_cb, *args)
+            _set_progress(job_id, 'done', total, total, '完成', result=result)
+        except Exception as e:
+            traceback.print_exc()
+            _set_progress(job_id, 'error', 0, total, str(e), error=str(e))
+
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+
+
+@app.route('/api/progress/<job_id>')
+def get_progress(job_id):
+    """获取任务进度"""
+    if not job_id or job_id not in jobs:
+        return jsonify({'error': '无效的任务ID'}), 400
+    progress = jobs[job_id].get('progress', {'task': None, 'current': 0, 'total': 0, 'message': ''})
+    return jsonify(progress)
+
+
+@app.route('/api/image-list/<job_id>')
+def get_image_list(job_id):
+    """获取当前已上传的图片列表"""
+    if not job_id or job_id not in jobs:
+        return jsonify({'error': '无效的任务ID'}), 400
+    job_dir = get_job_dir(job_id)
+    img_dir = job_dir / 'images'
+    if not img_dir.exists():
+        return jsonify({'images': [], 'total': 0})
+    all_images = sorted([p.name for p in img_dir.iterdir() if _is_image_file(p)])
+    jobs[job_id]['image_count'] = len(all_images)
+    return jsonify({'images': all_images, 'total': len(all_images)})
+
+
 def find_chinese_font(font_size: int) -> ImageFont.FreeTypeFont | None:
     """查找支持中文的字体"""
     font_paths = [
-        # Windows 中文字体
         "C:/Windows/Fonts/simhei.ttf",
         "C:/Windows/Fonts/msyh.ttf",
         "C:/Windows/Fonts/msyhbd.ttf",
         "C:/Windows/Fonts/simsun.ttc",
         "C:/Windows/Fonts/simkai.ttf",
-        # 通用英文字体
         "C:/Windows/Fonts/arial.ttf",
-        # Linux
         "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttf",
-        # macOS
         "/System/Library/Fonts/PingFang.ttc",
         "/System/Library/Fonts/Supplemental/Arial.ttf",
     ]
@@ -151,23 +271,40 @@ def find_chinese_font(font_size: int) -> ImageFont.FreeTypeFont | None:
             return ImageFont.truetype(fp, font_size)
         except (IOError, OSError):
             continue
-    # 最终回退
     try:
         return ImageFont.load_default()
     except Exception:
         return None
 
 
-def parse_score_file(filepath: str) -> list[list[str]]:
-    """
-    解析成绩文件 (CSV / XLSX / XLS)
-    返回二维列表，每个子列表是一行的各列字符串值
-    """
+def get_xlsx_sheet_names(filepath: str) -> list[str]:
+    """获取 xlsx 文件中所有工作表名称"""
+    if not HAS_OPENPYXL:
+        return []
+    try:
+        wb = openpyxl.load_workbook(filepath, read_only=True)
+        names = wb.sheetnames
+        wb.close()
+        return names
+    except Exception:
+        pass
+    # read_only 模式可能因打包后缺少子模块而失败，回退到普通模式
+    try:
+        wb = openpyxl.load_workbook(filepath)
+        names = wb.sheetnames
+        wb.close()
+        return names
+    except Exception as e:
+        print(f'[WARN] get_xlsx_sheet_names failed: {e}')
+        return []
+
+
+def parse_score_file(filepath: str, sheet_name: str | None = None) -> list[list[str]]:
+    """解析成绩文件 (CSV / XLSX / XLS)。sheet_name 仅对 xlsx 有效，默认使用活动工作表。"""
     ext = Path(filepath).suffix.lower()
     rows = []
 
     if ext == '.csv':
-        # 尝试多种编码
         for enc in ['utf-8-sig', 'utf-8', 'gbk', 'gb18030', 'latin-1']:
             try:
                 with open(filepath, 'r', encoding=enc) as f:
@@ -179,11 +316,17 @@ def parse_score_file(filepath: str) -> list[list[str]]:
 
     elif ext in ('.xlsx', '.xls'):
         if ext == '.xlsx' and HAS_OPENPYXL:
-            wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
-            ws = wb.active
+            wb = openpyxl.load_workbook(filepath, data_only=True)
+            ws = wb[sheet_name] if sheet_name and sheet_name in wb.sheetnames else wb.active
             rows = []
             for row in ws.iter_rows():
-                rows.append([str(cell.value) if cell.value is not None else '' for cell in row])
+                row_data = []
+                for cell in row:
+                    if cell.value is None:
+                        row_data.append('')
+                    else:
+                        row_data.append(str(cell.value))
+                rows.append(row_data)
             wb.close()
         elif ext == '.xls' and HAS_XLRD:
             wb = xlrd.open_workbook(filepath)
@@ -192,7 +335,6 @@ def parse_score_file(filepath: str) -> list[list[str]]:
             for r in range(ws.nrows):
                 rows.append([str(ws.cell_value(r, c)) if ws.cell_value(r, c) != '' else '' for c in range(ws.ncols)])
         else:
-            # 回退：尝试用 csv 读取（某些 xls 其实是 csv）
             for enc in ['utf-8-sig', 'utf-8', 'gbk', 'gb18030']:
                 try:
                     with open(filepath, 'r', encoding=enc) as f:
@@ -202,16 +344,25 @@ def parse_score_file(filepath: str) -> list[list[str]]:
                 except (UnicodeDecodeError, UnicodeError):
                     continue
 
-    # 清理空白
     rows = [[c.strip() for c in row] for row in rows]
     return rows
 
 
-def read_barcodes_from_image(image: Image.Image) -> list[dict]:
-    """读取图片中的条码，返回条码数据列表"""
+def read_barcodes_from_image(image: Image.Image, region: dict | None = None) -> list[dict]:
+    """读取图片中的条码。region 为 {'x1','y1','x2','y2'} 百分比裁切区域（可选）。"""
     if not HAS_PYZBAR:
         return []
     try:
+        if region:
+            w, h = image.size
+            x1 = int(w * region['x1'] / 100)
+            y1 = int(h * region['y1'] / 100)
+            x2 = int(w * region['x2'] / 100)
+            y2 = int(h * region['y2'] / 100)
+            x1, x2 = sorted([max(0, x1), min(w, x2)])
+            y1, y2 = sorted([max(0, y1), min(h, y2)])
+            if x2 - x1 > 10 and y2 - y1 > 10:
+                image = image.crop((x1, y1, x2, y2))
         gray = image.convert('L')
         barcodes = pyzbar.decode(gray)
         results = []
@@ -235,23 +386,26 @@ def extract_digits_from_filename(filename: str) -> str:
     """从文件名提取连续数字作为可能的考号"""
     digits = re.findall(r'\d+', filename)
     if digits:
-        # 返回最长的数字串（通常就是考号）
         return max(digits, key=len)
     return ''
 
 
-def convert_pdf_to_images(pdf_path: str, output_dir: str) -> list[str]:
-    """将 PDF 的每一页转为 JPG 图片，返回图片路径列表"""
+def convert_pdf_to_images(pdf_path: str, output_dir: str, prefix: str = '') -> list[str]:
+    """将 PDF 的每一页转为 JPG 图片。prefix 用于区分不同 PDF 的页面文件。"""
     if not HAS_PYMUPDF:
         raise RuntimeError("需要安装 PyMuPDF 来处理 PDF 文件: pip install pymupdf")
+    if not prefix:
+        prefix = Path(pdf_path).stem
+    # 清理前缀中的特殊字符
+    prefix = re.sub(r'[^\w\-]', '_', prefix)
     doc = fitz.open(pdf_path)
     image_paths = []
-    for page_num in range(len(doc)):
+    total = len(doc)
+    for page_num in range(total):
         page = doc[page_num]
-        # 300 DPI 渲染
         mat = fitz.Matrix(300 / 72, 300 / 72)
         pix = page.get_pixmap(matrix=mat)
-        img_path = os.path.join(output_dir, f'pdf_page_{page_num + 1:04d}.jpg')
+        img_path = os.path.join(output_dir, f'{prefix}_{page_num + 1:04d}.jpg')
         pix.save(img_path)
         image_paths.append(img_path)
     doc.close()
@@ -284,7 +438,6 @@ def add_scores_to_image(
         x = int(width * x_pct / 100)
         y = int(height * y_pct / 100)
 
-        # 根据得分情况选择颜色
         try:
             parts = text.split('/')
             stu_score = parts[0].strip()
@@ -310,6 +463,77 @@ def image_info(image_path: str) -> dict:
         return {'width': w, 'height': h, 'format': img.format, 'mode': img.mode}
     except Exception:
         return {'width': 0, 'height': 0, 'format': '', 'mode': ''}
+
+
+def _is_image_file(p: Path) -> bool:
+    return p.suffix.lower() in ('.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif')
+
+
+def _build_student_output_names(students: list[dict]) -> dict:
+    """
+    为学生构建去重后的输出文件名（不含扩展名）。
+    返回 {student_id: output_base_name}
+
+    规则：
+    - 优先使用学生姓名
+    - 同班重名：后加 a, b, c... 后缀
+    """
+    # 按班级分组
+    class_groups = defaultdict(list)
+    for s in students:
+        cls = s.get('class_name', 'unknown')
+        class_groups[cls].append(s)
+
+    name_map = {}
+    for cls, stu_list in class_groups.items():
+        name_counts = defaultdict(list)
+        for s in stu_list:
+            name = s.get('student_name', s['student_id'])
+            name_counts[name].append(s['student_id'])
+
+        # 处理重名
+        name_suffix = {}
+        for name, ids in name_counts.items():
+            if len(ids) == 1:
+                name_suffix[ids[0]] = name
+            else:
+                for i, sid in enumerate(ids):
+                    suffix = chr(ord('a') + i)  # a, b, c, ...
+                    name_suffix[sid] = f'{name}{suffix}'
+
+        for s in stu_list:
+            name_map[s['student_id']] = name_suffix[s['student_id']]
+
+    return name_map
+
+
+def _get_pinyin(text: str) -> tuple[str, str]:
+    """返回中文文本的拼音首字母和全拼，如 ('zs', 'zhangsan')"""
+    if not HAS_PYPINYIN or not text:
+        return '', ''
+    try:
+        initials = lazy_pinyin(text, style=Style.FIRST_LETTER)
+        full = lazy_pinyin(text, style=Style.NORMAL)
+        return ''.join(initials).lower(), ''.join(full).lower()
+    except Exception:
+        return '', ''
+
+
+def _enrich_student_list(students: list[dict]) -> list[dict]:
+    """为学生列表添加拼音搜索字段"""
+    result = []
+    for s in students:
+        name = s.get('student_name', '')
+        initials, full_py = _get_pinyin(name)
+        item = {
+            'student_id': s['student_id'],
+            'student_name': name,
+            'class_name': s.get('class_name', ''),
+            'py_initials': initials,
+            'py_full': full_py,
+        }
+        result.append(item)
+    return result
 
 
 # ============================================================
@@ -340,6 +564,8 @@ def init_job():
         'image_count': 0,
         'positions_front': [],
         'positions_back': [],
+        'manual_matches': {},       # {image_idx_or_pair_idx: student_id}
+        'barcode_scan_done': False,
         'processed': 0,
         'matched': 0,
         'unmatched_students': [],
@@ -352,12 +578,40 @@ def init_job():
 
 @app.route('/api/upload-scores', methods=['POST'])
 def upload_scores():
-    """上传成绩文件并返回预览"""
+    """上传成绩文件并返回预览。支持 xlsx 工作表选择。"""
     job_id = request.form.get('job_id', '')
     if not job_id or job_id not in jobs:
         return jsonify({'error': '无效的任务ID'}), 400
 
     file = request.files.get('file')
+    sheet_name = request.form.get('sheet_name', '') or None
+
+    # 如果传了 sheet_name，说明是切换工作表，使用已有文件
+    if sheet_name:
+        job = jobs[job_id]
+        score_file = job.get('score_file', '')
+        if not score_file:
+            return jsonify({'error': '请先上传成绩文件'}), 400
+        try:
+            rows = parse_score_file(score_file, sheet_name=sheet_name)
+        except Exception as e:
+            return jsonify({'error': f'文件解析失败: {str(e)}'}), 400
+        if not rows:
+            return jsonify({'error': f'工作表 "{sheet_name}" 中未找到任何数据'}), 400
+        job['score_rows'] = rows
+        job['score_config'] = None
+        job['score_sheet'] = sheet_name
+        preview = rows[:20]
+        max_cols = max(len(r) for r in preview) if preview else 0
+        return jsonify({
+            'total_rows': len(rows),
+            'preview_rows': len(preview),
+            'max_cols': max_cols,
+            'preview': preview,
+            'headers': [f'第{i+1}列' for i in range(max_cols)],
+            'active_sheet': sheet_name,
+        })
+
     if not file:
         return jsonify({'error': '未选择文件'}), 400
 
@@ -366,6 +620,7 @@ def upload_scores():
         return jsonify({'error': f'不支持的文件格式: {ext}，仅支持 CSV / XLS / XLSX'}), 400
 
     job_dir = get_job_dir(job_id)
+    (job_dir / 'scores').mkdir(exist_ok=True)
     save_path = job_dir / 'scores' / f'score{ext}'
     file.save(str(save_path))
 
@@ -374,14 +629,39 @@ def upload_scores():
     except Exception as e:
         return jsonify({'error': f'文件解析失败: {str(e)}'}), 400
 
-    if not rows:
+    # 获取 xlsx 的工作表列表（用于前端切换）
+    sheet_names = []
+    if ext == '.xlsx':
+        sheet_names = get_xlsx_sheet_names(str(save_path))
+
+    if not rows and not sheet_names:
         return jsonify({'error': '文件中未找到任何数据'}), 400
+
+    if not rows and sheet_names:
+        # 活动工作表为空，但有其他工作表可选，尝试第一个
+        for sn in sheet_names:
+            rows = parse_score_file(str(save_path), sheet_name=sn)
+            if rows:
+                sheet_name = sn
+                break
+        if not rows:
+            return jsonify({'error': '所有工作表中均未找到数据'}), 400
+    else:
+        # 获取实际使用的活动工作表名
+        sheet_name = None
+        if ext == '.xlsx' and HAS_OPENPYXL:
+            try:
+                wb = openpyxl.load_workbook(str(save_path), data_only=True)
+                sheet_name = wb.active.title
+                wb.close()
+            except Exception:
+                pass
 
     jobs[job_id]['score_file'] = str(save_path)
     jobs[job_id]['score_rows'] = rows
     jobs[job_id]['score_config'] = None
+    jobs[job_id]['score_sheet'] = sheet_name
 
-    # 截取前 20 行作为预览
     preview = rows[:20]
     max_cols = max(len(r) for r in preview) if preview else 0
 
@@ -391,7 +671,471 @@ def upload_scores():
         'max_cols': max_cols,
         'preview': preview,
         'headers': [f'第{i+1}列' for i in range(max_cols)],
+        'sheet_names': sheet_names,
+        'active_sheet': sheet_name,
     })
+
+
+# ---- 后台任务 worker 函数 ----
+
+def _render_single_page_worker(pdf_path: str, page_idx: int, out_path: str) -> dict:
+    """ProcessPoolExecutor worker：渲染 PDF 的单页。必须是模块顶层函数才能被 pickle。
+    每次调用独立 open/close PDF（PDF 解析很快，换取每页一个 future 的细粒度进度）。
+    不能访问父进程的 _shutdown_event / jobs 等模块状态。
+    """
+    try:
+        import fitz as _fitz
+    except ImportError:
+        return {'ok': False, 'error': 'fitz/PyMuPDF 在 worker 进程中不可用'}
+
+    doc = None
+    try:
+        doc = _fitz.open(pdf_path)
+        page = doc[page_idx]
+        mat = _fitz.Matrix(300 / 72, 300 / 72)
+        pix = page.get_pixmap(matrix=mat)
+        pix.save(out_path)
+        return {'ok': True}
+    except Exception as e:
+        return {'ok': False, 'error': f'页 {page_idx + 1}: {e}'}
+    finally:
+        if doc is not None:
+            try:
+                doc.close()
+            except Exception:
+                pass
+
+
+def _do_pdf_convert(job_id: str, progress_cb, pdf_info_list: list[dict], img_dir: str):
+    """后台转换 PDF 文件为图片。
+
+    用持久化 ProcessPoolExecutor 把单个 PDF 的页面分发到多个进程并行渲染，
+    绕过 GIL 实现真正的 CPU 并行。多个 PDF 顺序处理（前端按 PDF 逐个提交）。
+
+    输出命名：`{全局序号:05d}_{原 PDF stem}.jpg`
+    全局序号 = 转换开始前 images/ 已有图片数 + 累计已转换页 + 当前页序 + 1
+    多次上传 / 同名 PDF 重复上传都不会覆盖；自然按上传顺序排序。
+    """
+    total_pages = sum(p['pages'] for p in pdf_info_list)
+    if total_pages <= 0:
+        return {'converted_pages': 0, 'errors': [], 'pdf_count': 0}
+
+    img_dir_path = Path(img_dir)
+    img_dir_path.mkdir(parents=True, exist_ok=True)
+    base_seq = len([p for p in img_dir_path.iterdir() if _is_image_file(p)])
+    converted_total = 0
+    errors: list[str] = []
+
+    # 真实进度：派发到 worker 前先给一条更准确的消息
+    progress_cb(0, f'读取 PDF，准备 {total_pages} 页渲染任务...')
+
+    MP_MIN_PAGES = 2  # 单页 PDF 不值得起进程间通信
+
+    for info in pdf_info_list:
+        if _shutdown_event.is_set():
+            break
+        pages = info['pages']
+        if pages <= 0:
+            continue
+
+        # 给本 PDF 每一页分配输出路径（全局序号在所有上传间唯一）
+        page_assignments = []
+        for p_idx in range(pages):
+            seq = base_seq + converted_total + p_idx + 1
+            out_name = f'{seq:05d}_{info["prefix"]}.jpg'
+            page_assignments.append((p_idx, os.path.join(img_dir, out_name)))
+
+        executor = _get_pdf_executor() if pages >= MP_MIN_PAGES else None
+
+        if executor is None:
+            # 单进程降级路径（单页 PDF 或进程池不可用）
+            progress_cb(converted_total, f'{info["prefix"]}：单进程渲染中... ({converted_total}/{total_pages})')
+            for p_idx, out_path in page_assignments:
+                if _shutdown_event.is_set():
+                    break
+                r = _render_single_page_worker(info['path'], p_idx, out_path)
+                if r.get('ok'):
+                    converted_total += 1
+                else:
+                    errors.append(f'{info["prefix"]}: {r.get("error", "未知错误")}')
+                progress_cb(converted_total, f'{info["prefix"]}：渲染中 {converted_total}/{total_pages}')
+        else:
+            # 多进程：每页一个 future，进度按页粒度更新
+            progress_cb(converted_total, f'{info["prefix"]}：派发 {pages} 页到 {_pdf_executor_workers} 个进程...')
+            futures = []
+            try:
+                for p_idx, out_path in page_assignments:
+                    futures.append(executor.submit(_render_single_page_worker, info['path'], p_idx, out_path))
+                # 派发完毕，告诉用户 worker 即将/正在启动
+                progress_cb(converted_total, f'{info["prefix"]}：worker 进程启动中... ({converted_total}/{total_pages})')
+
+                for fut in concurrent.futures.as_completed(futures):
+                    try:
+                        r = fut.result()
+                        if r.get('ok'):
+                            converted_total += 1
+                        else:
+                            errors.append(f'{info["prefix"]}: {r.get("error", "未知错误")}')
+                        progress_cb(converted_total, f'{info["prefix"]}：渲染中 {converted_total}/{total_pages}')
+                    except Exception as e:
+                        errors.append(f'{info["prefix"]} worker 异常: {e}')
+                        traceback.print_exc()
+            except Exception as e:
+                # 提交失败（如进程池已关闭）：降级到当前进程
+                errors.append(f'{info["prefix"]}: 进程池提交失败，降级单进程: {e}')
+                for p_idx, out_path in page_assignments:
+                    if _shutdown_event.is_set():
+                        break
+                    r = _render_single_page_worker(info['path'], p_idx, out_path)
+                    if r.get('ok'):
+                        converted_total += 1
+                    else:
+                        errors.append(f'{info["prefix"]}: {r.get("error", "未知错误")}')
+                    progress_cb(converted_total, f'{info["prefix"]}：渲染中 {converted_total}/{total_pages}')
+
+    # 清理原始 PDF 文件（已转为 JPG）
+    for info in pdf_info_list:
+        try:
+            os.remove(info['path'])
+        except Exception:
+            pass
+
+    job = jobs.get(job_id)
+    if job:
+        job['image_count'] = len([p for p in img_dir_path.iterdir() if _is_image_file(p)])
+
+    return {
+        'converted_pages': converted_total,
+        'pdf_count': len(pdf_info_list),
+        'errors': errors,
+    }
+
+
+def _do_barcode_scan(job_id: str, progress_cb, double_sided: bool, use_barcode: bool, barcode_region: dict | None):
+    """后台扫描条码"""
+    job = jobs.get(job_id)
+    if not job:
+        return
+    config = job.get('score_config')
+    rows = job['score_rows']
+    parsed = _parse_scores_with_config(rows, config)
+    student_map = {s['student_id']: s for s in parsed['students']}
+    student_list = _enrich_student_list(parsed['students'])
+
+    job_dir = get_job_dir(job_id)
+    img_dir = job_dir / 'images'
+    image_files = sorted([p for p in img_dir.iterdir() if _is_image_file(p)])
+
+    matched = []
+    unmatched = []
+    all_barcode_reads = []
+
+    if double_sided:
+        pair_count = len(image_files) // 2
+        progress_cb(0, f'开始扫描 {pair_count} 对试卷...')
+        for pair_idx in range(pair_count):
+            front_img = image_files[pair_idx * 2]
+            back_img = image_files[pair_idx * 2 + 1]
+            student_id = None
+            barcode_raw = ''
+            manual_key = str(pair_idx)
+            if manual_key in job.get('manual_matches', {}):
+                student_id = job['manual_matches'][manual_key]
+            elif use_barcode and HAS_PYZBAR:
+                try:
+                    img_obj = Image.open(front_img)
+                    barcodes = read_barcodes_from_image(img_obj, barcode_region)
+                    if barcodes:
+                        barcode_raw = barcodes[0]['data'].strip()
+                        student_id = barcode_raw
+                        all_barcode_reads.append({
+                            'barcode_data': barcode_raw,
+                            'image': front_img.name,
+                            'pair_idx': pair_idx,
+                            'matched_student': student_id if student_id in student_map else None,
+                        })
+                except Exception:
+                    pass
+            if not student_id:
+                student_id = extract_digits_from_filename(front_img.stem)
+            if student_id and student_id in student_map:
+                s = student_map[student_id]
+                matched.append({
+                    'student_id': student_id,
+                    'student_name': s.get('student_name', ''),
+                    'class_name': s.get('class_name', ''),
+                    'front_image': front_img.name,
+                    'back_image': back_img.name,
+                    'pair_idx': pair_idx,
+                })
+            else:
+                unmatched.append({
+                    'front_image': front_img.name,
+                    'back_image': back_img.name,
+                    'pair_idx': pair_idx,
+                    'guessed_id': student_id or '',
+                })
+            progress_cb(pair_idx + 1, f'扫描条码: {pair_idx + 1}/{pair_count}')
+        if len(image_files) % 2 == 1:
+            last_img = image_files[-1]
+            unmatched.append({
+                'front_image': last_img.name,
+                'back_image': None,
+                'pair_idx': pair_count,
+                'guessed_id': extract_digits_from_filename(last_img.stem),
+            })
+    else:
+        total = len(image_files)
+        progress_cb(0, f'开始扫描 {total} 张试卷...')
+        for idx, img_file in enumerate(image_files):
+            student_id = None
+            barcode_raw = ''
+            manual_key = str(idx)
+            if manual_key in job.get('manual_matches', {}):
+                student_id = job['manual_matches'][manual_key]
+            elif use_barcode and HAS_PYZBAR:
+                try:
+                    img_obj = Image.open(img_file)
+                    barcodes = read_barcodes_from_image(img_obj, barcode_region)
+                    if barcodes:
+                        barcode_raw = barcodes[0]['data'].strip()
+                        student_id = barcode_raw
+                        all_barcode_reads.append({
+                            'barcode_data': barcode_raw,
+                            'image': img_file.name,
+                            'idx': idx,
+                            'matched_student': student_id if student_id in student_map else None,
+                        })
+                except Exception:
+                    pass
+            if not student_id:
+                student_id = extract_digits_from_filename(img_file.stem)
+            if student_id and student_id in student_map:
+                s = student_map[student_id]
+                matched.append({
+                    'student_id': student_id,
+                    'student_name': s.get('student_name', ''),
+                    'class_name': s.get('class_name', ''),
+                    'image': img_file.name,
+                    'idx': idx,
+                })
+            else:
+                unmatched.append({
+                    'image': img_file.name,
+                    'idx': idx,
+                    'guessed_id': student_id or '',
+                })
+            progress_cb(idx + 1, f'扫描条码: {idx + 1}/{total}')
+
+    # 重复条码检测
+    dup_barcodes = []
+    if all_barcode_reads:
+        barcode_counts = Counter(r['barcode_data'] for r in all_barcode_reads if r['barcode_data'])
+        dup_values = {v for v, c in barcode_counts.items() if c > 1}
+        if dup_values:
+            dup_barcodes = [r for r in all_barcode_reads if r['barcode_data'] in dup_values]
+
+    matched_ids = {m['student_id'] for m in matched}
+    unmatched_students = []
+    for sid, s in student_map.items():
+        if sid not in matched_ids:
+            unmatched_students.append({
+                'student_id': sid,
+                'student_name': s.get('student_name', ''),
+                'class_name': s.get('class_name', ''),
+            })
+
+    job['barcode_scan_done'] = True
+
+    return {
+        'double_sided': double_sided,
+        'matched': matched,
+        'unmatched': unmatched,
+        'unmatched_students': unmatched_students,
+        'student_list': student_list,
+        'total_images': len(image_files),
+        'dup_barcodes': dup_barcodes,
+    }
+
+
+def _do_process(job_id: str, progress_cb, double_sided: bool, use_barcode: bool,
+                font_size: int, create_class_folders: bool):
+    """后台处理：匹配和分数叠加"""
+    job = jobs.get(job_id)
+    if not job:
+        return
+    config = job.get('score_config')
+    rows = job['score_rows']
+    parsed = _parse_scores_with_config(rows, config)
+    full_scores = parsed['full_scores']
+    students = parsed['students']
+    student_map = {s['student_id']: s for s in students}
+    output_names = _build_student_output_names(students)
+
+    job_dir = get_job_dir(job_id)
+    img_dir = job_dir / 'images'
+    output_dir = job_dir / 'output'
+    unmatched_dir = job_dir / 'unmatched'
+    output_dir.mkdir(exist_ok=True)
+    unmatched_dir.mkdir(exist_ok=True)
+
+    image_files = sorted([p for p in img_dir.iterdir() if _is_image_file(p)])
+    manual_matches = job.get('manual_matches', {})
+    barcode_region = job.get('barcode_region')
+    positions_front = job.get('positions_front', [])
+    positions_back = job.get('positions_back', [])
+
+    font = find_chinese_font(font_size)
+    if font is None:
+        raise RuntimeError('无法加载字体文件')
+
+    class_dirs: set[str] = set()
+    output_files = []
+    matched_ids = set()
+    matched_count = 0
+    unmatched_images: list[str] = []
+
+    def _make_score_text(score_val, idx):
+        fs = full_scores[idx] if idx < len(full_scores) else '?'
+        return f'{score_val}/{fs}'
+
+    if double_sided:
+        pair_count = len(image_files) // 2
+        progress_cb(0, f'开始处理 {pair_count} 对试卷...')
+        for pair_idx in range(pair_count):
+            front_img = image_files[pair_idx * 2]
+            back_img = image_files[pair_idx * 2 + 1]
+            front_path = str(front_img)
+            back_path = str(back_img)
+            student_id = None
+
+            manual_key = str(pair_idx)
+            if manual_key in manual_matches:
+                student_id = manual_matches[manual_key]
+            elif use_barcode and HAS_PYZBAR:
+                try:
+                    img_obj = Image.open(front_path)
+                    barcodes = read_barcodes_from_image(img_obj, barcode_region)
+                    if barcodes:
+                        student_id = barcodes[0]['data'].strip()
+                except Exception:
+                    pass
+            if not student_id:
+                student_id = extract_digits_from_filename(front_img.stem)
+
+            if not student_id or student_id not in student_map:
+                shutil.copy(front_path, unmatched_dir / front_img.name)
+                shutil.copy(back_path, unmatched_dir / back_img.name)
+                unmatched_images.append(front_img.name)
+                progress_cb(pair_idx + 1, f'处理: {pair_idx + 1}/{pair_count}')
+                continue
+
+            student = student_map[student_id]
+            student_scores = student['scores']
+            class_name = student.get('class_name', 'unknown')
+            out_name = output_names.get(student_id, student_id)
+
+            if create_class_folders:
+                save_dir = output_dir / class_name
+            else:
+                save_dir = output_dir
+            save_dir.mkdir(exist_ok=True)
+            class_dirs.add(class_name)
+
+            n_front = len(positions_front)
+            front_texts = [_make_score_text(student_scores[j], j) for j in range(min(n_front, len(student_scores)))]
+            while len(front_texts) < n_front:
+                front_texts.append('?/?')
+            out_front = save_dir / f'{out_name}1.jpg'
+            add_scores_to_image(front_path, [p['x'] for p in positions_front],
+                                [p['y'] for p in positions_front], front_texts, font_size, str(out_front), font)
+            output_files.append(str(out_front))
+
+            n_back = len(positions_back)
+            back_scores = student_scores[n_front:n_front + n_back]
+            back_texts = [_make_score_text(back_scores[j], n_front + j) for j in range(min(n_back, len(back_scores)))]
+            while len(back_texts) < n_back:
+                back_texts.append('?/?')
+            out_back = save_dir / f'{out_name}2.jpg'
+            add_scores_to_image(back_path, [p['x'] for p in positions_back],
+                                [p['y'] for p in positions_back], back_texts, font_size, str(out_back), font)
+            output_files.append(str(out_back))
+            matched_ids.add(student_id)
+            matched_count += 1
+            progress_cb(pair_idx + 1, f'处理: {pair_idx + 1}/{pair_count}')
+
+        if len(image_files) % 2 == 1:
+            last_img = image_files[-1]
+            shutil.copy(str(last_img), unmatched_dir / last_img.name)
+            unmatched_images.append(last_img.name)
+    else:
+        total = len(image_files)
+        progress_cb(0, f'开始处理 {total} 张试卷...')
+        for idx, img_file in enumerate(image_files):
+            img_path = str(img_file)
+            student_id = None
+            manual_key = str(idx)
+            if manual_key in manual_matches:
+                student_id = manual_matches[manual_key]
+            elif use_barcode and HAS_PYZBAR:
+                try:
+                    img_obj = Image.open(img_path)
+                    barcodes = read_barcodes_from_image(img_obj, barcode_region)
+                    if barcodes:
+                        student_id = barcodes[0]['data'].strip()
+                except Exception:
+                    pass
+            if not student_id:
+                student_id = extract_digits_from_filename(img_file.stem)
+
+            if not student_id or student_id not in student_map:
+                shutil.copy(img_path, unmatched_dir / img_file.name)
+                unmatched_images.append(img_file.name)
+                progress_cb(idx + 1, f'处理: {idx + 1}/{total}')
+                continue
+
+            student = student_map[student_id]
+            student_scores = student['scores']
+            class_name = student.get('class_name', 'unknown')
+            out_name = output_names.get(student_id, student_id)
+
+            if create_class_folders:
+                save_dir = output_dir / class_name
+            else:
+                save_dir = output_dir
+            save_dir.mkdir(exist_ok=True)
+            class_dirs.add(class_name)
+
+            n_pos = len(positions_front)
+            texts = [_make_score_text(student_scores[j], j) for j in range(min(n_pos, len(student_scores)))]
+            while len(texts) < n_pos:
+                texts.append('?/?')
+            out_path_obj = save_dir / f'{out_name}.jpg'
+            add_scores_to_image(img_path, [p['x'] for p in positions_front],
+                                [p['y'] for p in positions_front], texts, font_size, str(out_path_obj), font)
+            output_files.append(str(out_path_obj))
+            matched_ids.add(student_id)
+            matched_count += 1
+            progress_cb(idx + 1, f'处理: {idx + 1}/{total}')
+
+    unmatched_students = []
+    for sid, student in student_map.items():
+        if sid not in matched_ids:
+            unmatched_students.append({
+                'student_id': sid,
+                'student_name': student.get('student_name', ''),
+                'class_name': student.get('class_name', ''),
+            })
+
+    return {
+        'output_files': output_files,
+        'matched_count': matched_count,
+        'matched_ids': list(matched_ids),
+        'unmatched_images': unmatched_images,
+        'unmatched_students': unmatched_students,
+        'total_images': len(image_files),
+        'class_dirs': sorted(class_dirs),
+    }
 
 
 @app.route('/api/upload-images', methods=['POST'])
@@ -407,10 +1151,12 @@ def upload_images():
 
     job_dir = get_job_dir(job_id)
     img_dir = job_dir / 'images'
+    img_dir.mkdir(exist_ok=True)
     supported_exts = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.pdf'}
 
     saved = []
     errors = []
+    pdf_list = []  # [(path, prefix, page_count)]
 
     for f in files:
         if not f.filename:
@@ -422,35 +1168,42 @@ def upload_images():
 
         safe_name = secure_filename(f.filename)
         save_path = img_dir / safe_name
-        # 避免覆盖
         counter = 1
         while save_path.exists():
             stem = Path(safe_name).stem
             save_path = img_dir / f'{stem}_{counter}{ext}'
             counter += 1
         f.save(str(save_path))
-        saved.append(save_path.name)
 
-        # PDF 转图片
         if ext == '.pdf':
             try:
-                pdf_images = convert_pdf_to_images(str(save_path), str(img_dir))
-                saved.extend([Path(p).name for p in pdf_images])
+                pdf_prefix = Path(save_path).stem
+                doc = fitz.open(str(save_path))
+                page_count = len(doc)
+                doc.close()
+                pdf_list.append({'path': str(save_path), 'prefix': pdf_prefix, 'pages': page_count})
+                saved.append(save_path.name)
             except Exception as e:
-                errors.append(f'{f.filename}: PDF转换失败 - {str(e)}')
+                errors.append(f'{f.filename}: PDF读取失败 - {str(e)}')
+        else:
+            saved.append(save_path.name)
 
-    # 更新 job 状态
-    all_images = sorted([
-        p.name for p in img_dir.iterdir()
-        if p.suffix.lower() in ('.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif')
-    ])
+    # 统计当前图片（不含PDF页面）
+    all_images = sorted([p.name for p in img_dir.iterdir() if _is_image_file(p)])
     jobs[job_id]['image_count'] = len(all_images)
+
+    total_pdf_pages = sum(p['pages'] for p in pdf_list)
+
+    if pdf_list:
+        _start_async_task(job_id, 'pdf_convert', total_pdf_pages, _do_pdf_convert, pdf_list, str(img_dir))
 
     return jsonify({
         'saved': saved,
         'total_images': len(all_images),
-        'images': all_images[:50],   # 前 50 张预览
+        'images': all_images,
         'errors': errors,
+        'pdf_pending': total_pdf_pages > 0,
+        'pdf_total_pages': total_pdf_pages,
     })
 
 
@@ -464,6 +1217,7 @@ def config_scores():
     config = {
         'skip_rows': request.json.get('skip_rows', 0),
         'id_column': request.json.get('id_column', 0),
+        'name_column': request.json.get('name_column', -1),
         'full_score_row': request.json.get('full_score_row', 0),
         'score_start_column': request.json.get('score_start_column', 5),
         'score_end_column': request.json.get('score_end_column', -1),
@@ -474,7 +1228,6 @@ def config_scores():
     if not rows:
         return jsonify({'error': '请先上传成绩文件'}), 400
 
-    # 应用配置进行解析验证
     try:
         parsed = _parse_scores_with_config(rows, config)
     except Exception as e:
@@ -494,6 +1247,7 @@ def _parse_scores_with_config(rows: list[list[str]], config: dict) -> dict:
     """根据配置解析成绩数据"""
     skip = config['skip_rows']
     id_col = config['id_column']
+    name_col = config.get('name_column', -1)
     full_row = config['full_score_row']
     score_start = config['score_start_column']
     score_end = config['score_end_column']
@@ -521,8 +1275,16 @@ def _parse_scores_with_config(rows: list[list[str]], config: dict) -> dict:
             'student_id': row[id_col].strip(),
             'scores': row[score_start:score_end] if score_start < len(row) else [],
         }
+
+        # 提取姓名
+        if name_col >= 0 and name_col < len(row):
+            student['student_name'] = row[name_col].strip()
+        else:
+            student['student_name'] = student['student_id']
+
         if class_col >= 0 and class_col < len(row):
             student['class_name'] = row[class_col].strip()
+
         students.append(student)
 
     return {
@@ -531,19 +1293,89 @@ def _parse_scores_with_config(rows: list[list[str]], config: dict) -> dict:
     }
 
 
+# ============================================================
+#  条码扫描 & 人工匹配
+# ============================================================
+
+@app.route('/api/scan-barcodes', methods=['POST'])
+def scan_barcodes():
+    """扫描所有已上传图片的条码。支持 async_mode 后台执行以显示进度条。"""
+    job_id = request.json.get('job_id', '')
+    if not job_id or job_id not in jobs:
+        return jsonify({'error': '无效的任务ID'}), 400
+
+    job = jobs[job_id]
+    config = job.get('score_config')
+    if not config:
+        return jsonify({'error': '请先配置成绩文件'}), 400
+
+    double_sided = request.json.get('double_sided', False)
+    use_barcode = request.json.get('use_barcode', True)
+    barcode_region = request.json.get('barcode_region', None)
+    async_mode = request.json.get('async', True)
+
+    if barcode_region:
+        job['barcode_region'] = barcode_region
+
+    # 计算总工作量
+    job_dir = get_job_dir(job_id)
+    img_dir = job_dir / 'images'
+    image_files = sorted([p for p in img_dir.iterdir() if _is_image_file(p)])
+    total = len(image_files) // 2 if double_sided else len(image_files)
+
+    if async_mode:
+        _start_async_task(job_id, 'barcode_scan', total, _do_barcode_scan,
+                          double_sided, use_barcode, barcode_region)
+        return jsonify({'started': True, 'task': 'barcode_scan', 'total': total})
+
+    # 同步模式（兼容旧行为）
+    result = _do_barcode_scan(job_id, lambda c, m: None, double_sided, use_barcode, barcode_region)
+    return jsonify(result)
+
+
+@app.route('/api/manual-match', methods=['POST'])
+def manual_match():
+    """人工匹配：为无法识别条码的图片指定学生"""
+    job_id = request.json.get('job_id', '')
+    if not job_id or job_id not in jobs:
+        return jsonify({'error': '无效的任务ID'}), 400
+
+    matches = request.json.get('matches', [])  # [{idx: N, student_id: '...'}]
+    if not matches:
+        return jsonify({'error': '没有匹配数据'}), 400
+
+    job = jobs[job_id]
+    if 'manual_matches' not in job:
+        job['manual_matches'] = {}
+
+    for m in matches:
+        key = str(m.get('idx', m.get('pair_idx', '')))
+        sid = m.get('student_id', '').strip()
+        if key and sid:
+            job['manual_matches'][key] = sid
+
+    return jsonify({
+        'ok': True,
+        'count': len(job['manual_matches']),
+    })
+
+
+# ============================================================
+#  位置保存 & 模板
+# ============================================================
+
 @app.route('/api/save-positions', methods=['POST'])
 def save_positions():
     """保存分数打印位置坐标"""
     job_id = request.json.get('job_id', '')
-    side = request.json.get('side', 'front')  # 'front' 或 'back'
-    positions = request.json.get('positions', [])  # [{x: %, y: %}, ...]
+    side = request.json.get('side', 'front')
+    positions = request.json.get('positions', [])
     y_offset = request.json.get('y_offset', 0)
     x_offset = request.json.get('x_offset', 0)
 
     if not job_id or job_id not in jobs:
         return jsonify({'error': '无效的任务ID'}), 400
 
-    # 应用 X / Y 偏移
     adjusted = []
     for p in positions:
         adjusted.append({
@@ -562,9 +1394,13 @@ def save_positions():
     })
 
 
+# ============================================================
+#  处理
+# ============================================================
+
 @app.route('/api/process', methods=['POST'])
 def process():
-    """执行匹配和分数叠加处理"""
+    """执行匹配和分数叠加处理。支持 async_mode 后台执行以显示进度条。"""
     job_id = request.json.get('job_id', '')
     if not job_id or job_id not in jobs:
         return jsonify({'error': '无效的任务ID'}), 400
@@ -582,190 +1418,52 @@ def process():
     use_barcode = request.json.get('use_barcode', True)
     font_size = request.json.get('font_size', 80)
     create_class_folders = request.json.get('create_class_folders', True)
+    async_mode = request.json.get('async', True)
 
     positions_back = job.get('positions_back', [])
     if double_sided and not positions_back:
         return jsonify({'error': '双面模式需要标记背面的分数位置'}), 400
 
-    # 解析成绩数据
-    rows = job['score_rows']
-    parsed = _parse_scores_with_config(rows, config)
-    full_scores = parsed['full_scores']
-    students = parsed['students']
-
+    # 计算总工作量
     job_dir = get_job_dir(job_id)
     img_dir = job_dir / 'images'
-    output_dir = job_dir / 'output'
-    unmatched_dir = job_dir / 'unmatched'
-    output_dir.mkdir(exist_ok=True)
-    unmatched_dir.mkdir(exist_ok=True)
+    image_files = sorted([p for p in img_dir.iterdir() if _is_image_file(p)])
+    total = len(image_files) // 2 if double_sided else len(image_files)
 
-    # 获取所有图片
-    image_files = sorted([
-        p for p in img_dir.iterdir()
-        if p.suffix.lower() in ('.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif')
-    ])
+    if async_mode:
+        _start_async_task(job_id, 'process', total, _do_process,
+                          double_sided, use_barcode, font_size, create_class_folders)
+        return jsonify({'started': True, 'task': 'process', 'total': total})
 
-    # 建立图片索引
-    # 有条码模式
-    image_map = {}  # student_id -> [image_paths]
-    unmatched_images = []
+    # 同步模式（兼容旧行为）
+    try:
+        result = _do_process(job_id, lambda c, m: None, double_sided, use_barcode,
+                             font_size, create_class_folders)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
-    if use_barcode and HAS_PYZBAR:
-        for img_file in image_files:
-            try:
-                img = Image.open(img_file)
-                barcodes = read_barcodes_from_image(img)
-                if barcodes:
-                    sid = barcodes[0]['data'].strip()
-                    if sid not in image_map:
-                        image_map[sid] = []
-                    image_map[sid].append(str(img_file))
-                else:
-                    unmatched_images.append(img_file.name)
-            except Exception:
-                unmatched_images.append(img_file.name)
-    else:
-        # 文件名模式：提取数字作为考号
-        for img_file in image_files:
-            sid = extract_digits_from_filename(img_file.stem)
-            if sid:
-                if sid not in image_map:
-                    image_map[sid] = []
-                image_map[sid].append(str(img_file))
-            else:
-                unmatched_images.append(img_file.name)
-
-    # 加载字体
-    font = find_chinese_font(font_size)
-    if font is None:
-        return jsonify({'error': '无法加载字体文件，请确认系统中存在中文字体'}), 500
-
-    # 处理每个学生
-    output_files = []
-    matched_count = 0
-    unmatched_students = []
-
-    # 构建考号 -> 学生映射
-    student_map = {s['student_id']: s for s in students}
-
-    for sid, img_paths in image_map.items():
-        student = student_map.get(sid)
-        if student is None:
-            # 图片有但成绩没有 -> 拷入无条码
-            for p in img_paths:
-                shutil.copy(p, unmatched_dir / Path(p).name)
-            continue
-
-        student_scores = student['scores']
-        class_name = student.get('class_name', 'unknown')
-
-        if double_sided:
-            # 双面：每两张图片组成一个学生的正反面
-            img_paths_sorted = sorted(img_paths)
-            for pair_idx in range(0, len(img_paths_sorted), 2):
-                front_img = img_paths_sorted[pair_idx]
-                back_img = img_paths_sorted[pair_idx + 1] if pair_idx + 1 < len(img_paths_sorted) else None
-
-                n_front = len(positions_front)
-                front_scores = student_scores[:n_front]
-                front_texts = []
-                for j, s in enumerate(front_scores):
-                    fs = full_scores[j] if j < len(full_scores) else '?'
-                    front_texts.append(f'{s}/{fs}')
-
-                if create_class_folders:
-                    save_dir = output_dir / class_name
-                else:
-                    save_dir = output_dir
-                save_dir.mkdir(exist_ok=True)
-
-                out_front = save_dir / f'{sid}_{matched_count + 1}_front.jpg'
-                add_scores_to_image(
-                    front_img,
-                    [p['x'] for p in positions_front],
-                    [p['y'] for p in positions_front],
-                    front_texts,
-                    font_size,
-                    str(out_front),
-                    font,
-                )
-                output_files.append(str(out_front))
-                matched_count += 1
-
-                if back_img and positions_back:
-                    n_back = len(positions_back)
-                    back_scores = student_scores[n_front:n_front + n_back]
-                    back_texts = []
-                    for j, s in enumerate(back_scores):
-                        fs_idx = n_front + j
-                        fs = full_scores[fs_idx] if fs_idx < len(full_scores) else '?'
-                        back_texts.append(f'{s}/{fs}')
-
-                    out_back = save_dir / f'{sid}_{matched_count}_back.jpg'
-                    add_scores_to_image(
-                        back_img,
-                        [p['x'] for p in positions_back],
-                        [p['y'] for p in positions_back],
-                        back_texts,
-                        font_size,
-                        str(out_back),
-                        font,
-                    )
-                    output_files.append(str(out_back))
-        else:
-            # 单面
-            texts = []
-            for j, s in enumerate(student_scores):
-                if j >= len(positions_front):
-                    break
-                fs = full_scores[j] if j < len(full_scores) else '?'
-                texts.append(f'{s}/{fs}')
-
-            if create_class_folders:
-                save_dir = output_dir / class_name
-            else:
-                save_dir = output_dir
-            save_dir.mkdir(exist_ok=True)
-
-            for img_path in img_paths:
-                out_path = save_dir / f'{sid}_{matched_count + 1}.jpg'
-                pos_x = [p['x'] for p in positions_front]
-                pos_y = [p['y'] for p in positions_front]
-                add_scores_to_image(
-                    img_path, pos_x, pos_y,
-                    texts[:len(positions_front)],
-                    font_size, str(out_path), font,
-                )
-                output_files.append(str(out_path))
-                matched_count += 1
-
-    # 找出有成绩但没有图片的学生
-    for sid, student in student_map.items():
-        if sid not in image_map:
-            unmatched_students.append({
-                'student_id': sid,
-                'class_name': student.get('class_name', ''),
-            })
-
-    # 更新 job 状态
-    job['matched'] = matched_count
-    job['unmatched_students'] = unmatched_students
-    job['unmatched_images'] = unmatched_images
-    job['output_files'] = output_files
+    job['matched'] = result['matched_count']
+    job['unmatched_students'] = result['unmatched_students']
+    job['unmatched_images'] = result['unmatched_images']
+    job['output_files'] = result['output_files']
     job['status'] = 'done'
 
+    output_dir = job_dir / 'output'
     return jsonify({
-        'matched': matched_count,
-        'unmatched_students': len(unmatched_students),
-        'unmatched_images': len(unmatched_images),
-        'output_files': [str(Path(f).relative_to(output_dir)) for f in output_files[:100]],
+        'matched': result['matched_count'],
+        'unmatched_students': len(result['unmatched_students']),
+        'unmatched_images': len(result['unmatched_images']),
+        'output_files': [str(Path(f).relative_to(output_dir)) for f in result['output_files'][:100]],
     })
 
 
+# ============================================================
+#  预览
+# ============================================================
+
 @app.route('/api/preview-result', methods=['POST'])
 def preview_result():
-    """生成一张预览图，用于检查位置和字号效果"""
+    """生成预览图，用于检查位置和字号效果"""
     job_id = request.json.get('job_id', '')
     if not job_id or job_id not in jobs:
         return jsonify({'error': '无效的任务ID'}), 400
@@ -777,13 +1475,12 @@ def preview_result():
 
     positions_front = job.get('positions_front', [])
     if not positions_front:
-        return jsonify({'error': '请先在步骤3标记分数位置'}), 400
+        return jsonify({'error': '请先在步骤标记分数位置'}), 400
 
     font_size = request.json.get('font_size', 80)
     double_sided = request.json.get('double_sided', False)
     positions_back = job.get('positions_back', [])
 
-    # 解析成绩获取第一名学生的小题分
     rows = job['score_rows']
     parsed = _parse_scores_with_config(rows, config)
     if not parsed['students']:
@@ -793,77 +1490,73 @@ def preview_result():
     full_scores = parsed['full_scores']
     student_scores = student['scores']
 
-    # 取第一张图片作为背景
     img_dir = get_job_dir(job_id) / 'images'
-    image_files = sorted([
-        p for p in img_dir.iterdir()
-        if p.suffix.lower() in ('.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif')
-    ])
+    image_files = sorted([p for p in img_dir.iterdir() if _is_image_file(p)])
     if not image_files:
         return jsonify({'error': '请先上传答题卡图片'}), 400
 
-    # 选择预览图片（可通过参数指定）
+    font = find_chinese_font(font_size)
+    if font is None:
+        return jsonify({'error': '无法加载字体'}), 500
+
+    job_dir = get_job_dir(job_id)
+
+    def _score_text(val, idx):
+        fs = full_scores[idx] if idx < len(full_scores) else '?'
+        return f'{val}/{fs}'
+
+    # 正面预览
+    n_front = len(positions_front)
+    front_texts = [_score_text(student_scores[j], j) for j in range(min(n_front, len(student_scores)))]
+    while len(front_texts) < n_front:
+        front_texts.append('?/?')
+
     preview_img_name = request.json.get('image_name', '')
     if preview_img_name:
         preview_path = img_dir / preview_img_name
         if not preview_path.exists():
             preview_path = image_files[0]
     else:
+        # 双面默认用第一张，单面用第一张
         preview_path = image_files[0]
 
-    font = find_chinese_font(font_size)
-    if font is None:
-        return jsonify({'error': '无法加载字体'}), 500
-
-    # 构建正面文字（得分/满分）
-    n_front = len(positions_front)
-    front_texts = []
-    for j in range(n_front):
-        s = student_scores[j] if j < len(student_scores) else '?'
-        fs = full_scores[j] if j < len(full_scores) else '?'
-        front_texts.append(f'{s}/{fs}')
-
-    job_dir = get_job_dir(job_id)
     out_path = str(job_dir / 'preview_front.jpg')
     add_scores_to_image(
         str(preview_path),
         [p['x'] for p in positions_front],
         [p['y'] for p in positions_front],
-        front_texts,
-        font_size,
-        out_path,
-        font,
+        front_texts, font_size, out_path, font,
     )
 
-    # 如果是双面，生成背面预览
-    back_path = None
-    if double_sided and positions_back:
-        back_texts = []
-        for j in range(len(positions_back)):
-            idx = n_front + j
-            s = student_scores[idx] if idx < len(student_scores) else '?'
-            fs = full_scores[idx] if idx < len(full_scores) else '?'
-            back_texts.append(f'{s}/{fs}')
+    result = {
+        'front_preview_url': '/api/preview-image/' + job_id + '/preview_front.jpg',
+    }
 
-        # 尝试找第二张图片
+    # 双面：生成背面预览
+    if double_sided and positions_back:
+        n_back = len(positions_back)
+        back_texts = [_score_text(student_scores[n_front + j], n_front + j)
+                      for j in range(min(n_back, len(student_scores) - n_front))]
+        while len(back_texts) < n_back:
+            back_texts.append('?/?')
+
+        # 双面时用第二张图片（如有）作为背面预览
         back_img = image_files[1] if len(image_files) > 1 else image_files[0]
         back_out = str(job_dir / 'preview_back.jpg')
         add_scores_to_image(
             str(back_img),
             [p['x'] for p in positions_back],
             [p['y'] for p in positions_back],
-            back_texts,
-            font_size,
-            back_out,
-            font,
+            back_texts, font_size, back_out, font,
         )
-        back_path = '/api/preview-image/' + job_id + '/preview_back.jpg'
+        result['back_preview_url'] = '/api/preview-image/' + job_id + '/preview_back.jpg'
 
-    return jsonify({
-        'front_preview_url': '/api/preview-image/' + job_id + '/preview_front.jpg',
-        'back_preview_url': back_path,
-    })
+    return jsonify(result)
 
+
+# ============================================================
+#  保存 / 清理 / 预览图片 / 其它
+# ============================================================
 
 @app.route('/api/save-to-folder', methods=['POST'])
 def save_to_folder():
@@ -883,7 +1576,6 @@ def save_to_folder():
     if not output_dir.exists() or not any(output_dir.iterdir()):
         return jsonify({'error': '没有可保存的结果'}), 400
 
-    # 确保目标目录存在
     target = Path(target_path)
     try:
         target.mkdir(parents=True, exist_ok=True)
@@ -893,7 +1585,6 @@ def save_to_folder():
     copied_files = 0
     errors = []
 
-    # 拷贝已匹配的图片
     match_dir = target / '已匹配'
     try:
         match_dir.mkdir(exist_ok=True)
@@ -911,7 +1602,6 @@ def save_to_folder():
     except Exception as e:
         errors.append(f'创建"已匹配"目录失败: {str(e)}')
 
-    # 拷贝无条码图片
     if unmatched_dir.exists():
         unmatched_target = target / '无条码'
         try:
@@ -927,7 +1617,6 @@ def save_to_folder():
         except Exception as e:
             errors.append(f'拷贝"无条码"失败: {str(e)}')
 
-    # 清理所有缓存
     cleanup_data()
     jobs.pop(job_id, None)
 
@@ -940,7 +1629,7 @@ def save_to_folder():
 
 @app.route('/api/output-file-list/<job_id>')
 def output_file_list(job_id):
-    """列出所有输出文件，供前端下载"""
+    """列出所有输出文件"""
     if job_id not in jobs:
         return jsonify({'error': '无效的任务ID'}), 400
 
@@ -994,7 +1683,6 @@ def output_file_download(job_id, filepath):
     else:
         return jsonify({'error': '无效的文件路径'}), 400
 
-    # 安全校验：确保路径在 job_dir 内
     if not str(full_path).startswith(str(job_dir.resolve())):
         return jsonify({'error': '路径越界'}), 403
 
@@ -1018,12 +1706,11 @@ def cleanup_job(job_id):
 
 @app.route('/api/preview-image/<job_id>/<filename>')
 def preview_image(job_id, filename):
-    """提供图片预览（用于位置标记和成品预览）"""
+    """提供图片预览"""
     if job_id not in jobs:
         return jsonify({'error': '无效的任务ID'}), 400
 
     job_dir = get_job_dir(job_id)
-    # 先在 images 子目录查找，再在 job 根目录查找
     img_path = job_dir / 'images' / secure_filename(filename)
     if not img_path.exists():
         img_path = job_dir / secure_filename(filename)
@@ -1040,16 +1727,13 @@ def image_list(job_id):
         return jsonify({'error': '无效的任务ID'}), 400
 
     img_dir = get_job_dir(job_id) / 'images'
-    images = sorted([
-        p.name for p in img_dir.iterdir()
-        if p.suffix.lower() in ('.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif')
-    ])
+    images = sorted([p.name for p in img_dir.iterdir() if _is_image_file(p)])
     return jsonify({'images': images})
 
 
 @app.route('/api/position-templates/save', methods=['POST'])
 def save_position_template():
-    """保存位置模板供以后复用"""
+    """保存位置模板"""
     name = (request.json.get('name') or 'default').strip()
     positions_front = request.json.get('positions_front', [])
     positions_back = request.json.get('positions_back', [])
@@ -1133,9 +1817,11 @@ def check_dependencies():
     """检查依赖库状态"""
     return jsonify({
         'pyzbar': HAS_PYZBAR,
+        'pyzbar_functional': _check_pyzbar_functional(),
         'pymupdf': HAS_PYMUPDF,
         'openpyxl': HAS_OPENPYXL,
         'xlrd': HAS_XLRD,
+        'pypinyin': HAS_PYPINYIN,
         'pillow': True,
     })
 
@@ -1145,6 +1831,10 @@ def check_dependencies():
 # ============================================================
 
 if __name__ == '__main__':
+    # PyInstaller 打包后子进程通过重新执行 exe 启动，必须用 freeze_support()
+    # 让 multiprocessing 识别 worker 启动而不重复跑主程序逻辑
+    multiprocessing.freeze_support()
+
     import sys
     port = 5000
     if len(sys.argv) > 1:

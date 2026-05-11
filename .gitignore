@@ -3,6 +3,7 @@ __pycache__/
 *.pyo
 /dist/
 /build/
+/build_temp/
 *.egg-info/
 .env
 .venv/
@@ -11,4 +12,8 @@ env/
 data/
 latest/
 .claude/
-*.spec
+
+# 打包产物：仅保留版本说明和启动脚本，不跟踪二进制
+publish/*
+!publish/version.txt
+!publish/启动答题卡匹配系统.bat

@@ -14,7 +14,9 @@ body { font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; background: #f
 .container { max-width: 960px; margin: 0 auto; padding: 24px 16px; }
 
 /* 步骤指示器 */
-.steps { display: flex; justify-content: center; margin-bottom: 32px; gap: 0; flex-wrap: wrap; }
+.steps { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-bottom: 32px; }
+.steps-row { display: flex; justify-content: center; align-items: center; gap: 0; flex-wrap: wrap; }
+
 .step { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #fff; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 13px; color: #999; white-space: nowrap; }
 .step .num { width: 26px; height: 26px; border-radius: 50%; background: #e0e0e0; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: bold; flex-shrink: 0; }
 .step.active { border-color: #3498db; color: #3498db; }
@@ -63,6 +65,11 @@ body { font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; background: #f
 .config-row select, .config-row input { padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; font-family: inherit; min-width: 120px; }
 .config-row select:focus, .config-row input:focus { border-color: #3498db; outline: none; }
 
+/* 双面标记区域 */
+.dual-mark-wrap { display: flex; flex-direction: column; gap: 16px; }
+.dual-mark-wrap .mark-section { border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px; }
+.dual-mark-wrap .mark-section h3 { font-size: 14px; color: #555; margin-bottom: 8px; }
+
 /* 缩略图网格 */
 .thumb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; max-height: 400px; overflow: auto; }
 .thumb-item { border: 2px solid #eee; border-radius: 8px; overflow: hidden; text-align: center; cursor: pointer; }
@@ -79,6 +86,25 @@ body { font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; background: #f
 .mark-list table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .mark-list th, .mark-list td { padding: 6px 10px; border-bottom: 1px solid #eee; }
 .mark-list th { background: #f5f7fa; font-weight: 500; }
+
+/* 人工匹配 */
+.match-grid { display: flex; flex-direction: column; gap: 16px; max-height: 60vh; overflow: auto; }
+.match-item { display: flex; gap: 16px; align-items: flex-start; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; background: #fafbfc; flex-wrap: wrap; }
+.match-item .img-pair { display: flex; gap: 8px; flex-shrink: 0; }
+.match-item .img-pair img { width: 180px; max-height: 250px; object-fit: contain; border: 1px solid #eee; border-radius: 4px; }
+.match-item .img-pair .single-img { width: 360px; }
+.match-item .match-form { flex: 1; min-width: 250px; position: relative; }
+.match-item .match-form label { display: block; font-size: 13px; color: #555; margin-bottom: 4px; }
+.match-item .match-form input { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: inherit; }
+.match-item .match-form input:focus { border-color: #3498db; outline: none; }
+.match-item .match-form .suggestion { font-size: 12px; color: #999; margin-top: 4px; }
+.match-item .match-form .matched-info { font-size: 13px; color: #27ae60; margin-top: 4px; }
+.match-item .img-label { font-size: 11px; color: #666; text-align: center; margin-top: 2px; }
+.student-suggestions { position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #ddd; border-radius: 6px; max-height: 200px; overflow: auto; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,0.1); display: none; }
+.student-suggestions .item { padding: 8px 12px; cursor: pointer; font-size: 13px; border-bottom: 1px solid #f0f0f0; }
+.student-suggestions .item:hover { background: #ebf5fb; }
+.student-suggestions .item .name { font-weight: 500; }
+.student-suggestions .item .meta { font-size: 11px; color: #999; margin-left: 8px; }
 
 /* 进度 */
 .progress-bar { height: 8px; background: #eee; border-radius: 4px; overflow: hidden; margin: 12px 0; }
@@ -104,11 +130,36 @@ body { font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; background: #f
 /* 隐藏 */
 .hidden { display: none !important; }
 
+/* 图片放大查看器 */
+.img-zoom-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.92); z-index: 9999; display: flex; align-items: center; justify-content: center; cursor: grab; }
+.img-zoom-overlay.dragging { cursor: grabbing; }
+.img-zoom-overlay img { max-width: 95vw; max-height: 95vh; object-fit: contain; transition: transform 0.1s ease; transform-origin: center center; user-select: none; pointer-events: none; }
+.img-zoom-close { position: fixed; top: 16px; right: 20px; z-index: 10000; background: rgba(255,255,255,0.2); color: #fff; border: none; font-size: 32px; width: 44px; height: 44px; border-radius: 50%; cursor: pointer; line-height: 44px; text-align: center; }
+.img-zoom-close:hover { background: rgba(255,255,255,0.35); }
+.img-zoom-hint { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 10000; color: rgba(255,255,255,0.6); font-size: 13px; pointer-events: none; }
+
+/* 条码区域框选 */
+.region-modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.85); z-index: 9998; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.region-modal-overlay .toolbar { margin-bottom: 10px; display: flex; gap: 10px; align-items: center; }
+.region-modal-overlay .toolbar button { padding: 6px 16px; border: 1px solid rgba(255,255,255,0.4); border-radius: 4px; cursor: pointer; font-size: 13px; background: rgba(255,255,255,0.15); color: #fff; }
+.region-modal-overlay .toolbar button:hover { background: rgba(255,255,255,0.3); }
+.region-canvas-wrap { position: relative; display: inline-block; }
+.region-canvas-wrap img { max-width: 90vw; max-height: 75vh; display: block; }
+.region-canvas-wrap canvas { position: absolute; top: 0; left: 0; cursor: crosshair; }
+
+/* 进度条 */
+.progress-wrap { margin: 16px 0; padding: 12px 16px; background: #f9fafb; border-radius: 8px; border: 1px solid #e0e0e0; }
+.progress-bar-bg { width: 100%; height: 12px; background: #e8e8e8; border-radius: 6px; overflow: hidden; }
+.progress-bar-fill { height: 100%; background: linear-gradient(90deg, #3498db, #2ecc71); border-radius: 6px; transition: width 0.3s ease; }
+.progress-text { font-size: 12px; color: #666; margin-top: 6px; }
+
 /* 响应式 */
 @media (max-width: 768px) {
-  .steps { flex-direction: column; align-items: stretch; }
+  .steps-row { flex-direction: column; align-items: stretch; }
   .step-arrow { display: none; }
   .config-row { flex-direction: column; gap: 6px; }
+  .match-item { flex-direction: column; }
+  .match-item .img-pair img { width: 140px; }
 }
 </style>
 </head>
@@ -122,17 +173,23 @@ body { font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; background: #f
 <div class="container" id="app">
   <!-- 步骤指示器 -->
   <div class="steps">
-    <div class="step active" data-step="1"><span class="num">1</span>上传成绩</div>
-    <span class="step-arrow">→</span>
-    <div class="step" data-step="2"><span class="num">2</span>上传答题卡</div>
-    <span class="step-arrow">→</span>
-    <div class="step" data-step="3"><span class="num">3</span>标记位置</div>
-    <span class="step-arrow">→</span>
-    <div class="step" data-step="4"><span class="num">4</span>处理设置</div>
-    <span class="step-arrow">→</span>
-    <div class="step" data-step="5"><span class="num">5</span>成品预览</div>
-    <span class="step-arrow">→</span>
-    <div class="step" data-step="6"><span class="num">6</span>处理下载</div>
+    <div class="steps-row">
+      <div class="step active" data-step="1"><span class="num">1</span>上传成绩</div>
+      <span class="step-arrow">→</span>
+      <div class="step" data-step="2"><span class="num">2</span>上传答题卡</div>
+      <span class="step-arrow">→</span>
+      <div class="step" data-step="3"><span class="num">3</span>人工匹配</div>
+      <span class="step-arrow">→</span>
+    </div>
+    <div class="steps-row">
+      <div class="step" data-step="4"><span class="num">4</span>标记位置</div>
+      <span class="step-arrow">→</span>
+      <div class="step" data-step="5"><span class="num">5</span>处理设置</div>
+      <span class="step-arrow">→</span>
+      <div class="step" data-step="6"><span class="num">6</span>成品预览</div>
+      <span class="step-arrow">→</span>
+      <div class="step" data-step="7"><span class="num">7</span>处理下载</div>
+    </div>
   </div>
 
   <!-- 步骤1: 上传成绩文件 -->
@@ -146,6 +203,10 @@ body { font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; background: #f
       <input type="file" id="score-file-input" accept=".csv,.xls,.xlsx" style="display:none">
     </div>
     <div id="score-status" style="margin-top:10px;font-size:13px;"></div>
+    <div id="sheet-selector" class="hidden" style="margin-top:12px;display:flex;align-items:center;gap:8px;">
+      <label style="font-size:13px;">工作表：</label>
+      <select id="sheet-select" onchange="switchSheet()" style="font-size:13px;padding:4px 8px;border:1px solid #d0d0d0;border-radius:4px;min-width:140px;"></select>
+    </div>
     <div id="score-preview" class="hidden" style="margin-top:16px;">
       <h3 style="font-size:15px;margin-bottom:10px;">数据预览（前20行）</h3>
       <div class="table-wrap" id="score-table-wrap"></div>
@@ -162,9 +223,14 @@ body { font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; background: #f
         <select id="cfg-id-column"></select>
       </div>
       <div class="config-row">
+        <label>姓名所在列：</label>
+        <select id="cfg-name-column"><option value="-1">不用姓名（以考号代替）</option></select>
+        <span style="font-size:12px;color:#999;">（用于输出文件名，不填则使用考号）</span>
+      </div>
+      <div class="config-row">
         <label>满分所在行：</label>
         <select id="cfg-full-row"><option value="0">第1行</option></select>
-        <span style="font-size:12px;color:#999;">（用于获取每道题的满分值，显示为"得分/满分"）</span>
+        <span style="font-size:12px;color:#999;">（用于获取每道题的满分值）</span>
       </div>
       <div class="config-row">
         <label>班级所在列：</label>
@@ -190,64 +256,98 @@ body { font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; background: #f
   <!-- 步骤2: 上传答题卡 -->
   <div class="card hidden" id="step2">
     <h2>第2步：上传答题卡图片</h2>
-    <p class="subtitle">支持 JPG、PNG、PDF 等格式。条码模式下自动识别条码；无条码则从文件名提取数字匹配考号。</p>
+    <p class="subtitle">支持 JPG、PNG、PDF 等格式。</p>
+
+    <div class="config-row" style="margin-bottom:16px;">
+      <label>试卷类型：</label>
+      <select id="cfg-double-sided-step2" onchange="onDoubleSidedChangeStep2()">
+        <option value="0">单面</option>
+        <option value="1">双面（正反面）</option>
+      </select>
+
+    </div>
+
     <div class="dropzone" id="image-dropzone">
       <div class="icon">🖼️</div>
       <div class="text">点击选择或拖拽答题卡图片到此处</div>
-      <div class="hint">支持 .jpg / .jpeg / .png / .bmp / .tiff / .pdf（可多选）</div>
+      <div class="hint">支持 .jpg / .jpeg / .png / .bmp / .tiff / .pdf（可多选，请确保文件按正反面顺序排列）</div>
       <input type="file" id="image-file-input" accept=".jpg,.jpeg,.png,.bmp,.tiff,.tif,.pdf" multiple style="display:none">
     </div>
     <div id="image-status" style="margin-top:10px;font-size:13px;"></div>
     <div id="image-preview" class="hidden" style="margin-top:16px;">
-      <h3 style="font-size:15px;margin-bottom:10px;">已上传图片</h3>
+      <h3 style="font-size:15px;margin-bottom:10px;">已上传图片（请确认排序）</h3>
       <div class="thumb-grid" id="thumb-grid"></div>
+    </div>
+    <div id="barcode-region-config" class="hidden" style="margin-top:16px;padding:14px;background:#f9fafb;border:1px dashed #b0b0b0;border-radius:8px;">
+      <h3 style="font-size:15px;margin-bottom:8px;">条码区域选择（可选，提高识别准确率）</h3>
+      <p style="font-size:12px;color:#888;margin-bottom:10px;">在样例图片上框选条码区域，识别时将仅在该区域内查找条码。</p>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <select id="barcode-sample-select" style="font-size:13px;padding:4px 8px;border:1px solid #d0d0d0;border-radius:4px;min-width:200px;">
+          <option value="">-- 选择样例图片 --</option>
+        </select>
+        <button class="btn btn-sm btn-outline" onclick="openBarcodeRegionModal()">框选条码区域</button>
+        <span id="barcode-region-status" style="font-size:12px;color:#3498db;"></span>
+        <button id="barcode-region-clear" class="btn btn-sm btn-outline" onclick="clearBarcodeRegion()" style="display:none;">清除区域</button>
+      </div>
     </div>
     <div class="btn-group">
       <button class="btn btn-outline" onclick="goToStep(1)">← 上一步</button>
-      <button class="btn btn-primary" id="btn-step2-next" onclick="goToStep(3)">下一步：标记位置 →</button>
+      <button class="btn btn-primary" id="btn-step2-next" onclick="goToStep(3)">下一步：人工匹配 →</button>
     </div>
   </div>
 
-  <!-- 步骤3: 标记分数位置 -->
+  <!-- 步骤3: 人工条码匹配（NEW） -->
   <div class="card hidden" id="step3">
-    <h2>第3步：标记分数打印位置</h2>
-    <p class="subtitle" id="step3-subtitle">在答题卡图片上点击每道小题分数要打印的位置。右键或点击"撤销"可删除上一个标记。</p>
+    <h2>第3步：人工匹配无法识别的试卷</h2>
+    <p class="subtitle">系统自动扫描条码后，部分试卷可能无法识别。请在此为它们指定对应的学生，或将无法匹配的试卷忽略。</p>
 
-    <div class="config-row">
-      <label>选择模板图片：</label>
-      <select id="template-image-select" onchange="loadTemplateImage()" style="min-width:250px;"></select>
-      <button class="btn btn-sm btn-outline" onclick="refreshImageList()">刷新列表</button>
+    <div id="match-summary" style="margin-bottom:16px;"></div>
+
+    <div id="match-dup-wrap" class="hidden" style="margin-bottom:16px;">
+      <h3 style="font-size:15px;margin-bottom:12px;color:#e67e22;">⚠ 重复条码（同一考号被多张答题卡读到，请确认或修正）</h3>
+      <div style="margin-bottom:8px;font-size:12px;color:#888;">以下条码被多张图片重复识别，可能为误读。请在下方"未识别试卷"区域修正匹配。</div>
+      <div id="match-dup-list" style="max-height:300px;overflow-y:auto;"></div>
     </div>
 
-    <div class="config-row">
-      <label>X轴偏移：</label>
-      <input type="range" id="x-offset-slider" min="-10" max="10" step="0.1" value="0" oninput="updateOffsets()" style="width:200px;">
-      <span id="x-offset-value" style="font-size:13px;">0%</span>
-      <span style="font-size:12px;color:#999;">（微调所有标记的左右位置）</span>
+    <div id="match-unmatched-wrap" class="hidden">
+      <h3 style="font-size:15px;margin-bottom:12px;">未识别试卷（请逐张指定考号）</h3>
+      <div class="match-grid" id="match-grid"></div>
     </div>
 
-    <div class="config-row">
-      <label>Y轴偏移：</label>
-      <input type="range" id="y-offset-slider" min="-10" max="10" step="0.1" value="0" oninput="updateOffsets()" style="width:200px;">
-      <span id="y-offset-value" style="font-size:13px;">0%</span>
-      <span style="font-size:12px;color:#999;">（微调所有标记的上下位置）</span>
+    <div id="match-all-ok" class="hidden" style="padding:20px;text-align:center;">
+      <p style="font-size:16px;color:#27ae60;">✓ 所有试卷均已成功识别，无需人工匹配！</p>
     </div>
 
-    <div class="config-row">
+    <div class="btn-group">
+      <button class="btn btn-outline" onclick="goToStep(2)">← 上一步</button>
+      <button class="btn btn-primary" id="btn-match-next" onclick="submitManualMatches()">下一步：标记位置 →</button>
+    </div>
+  </div>
+
+  <!-- 步骤4: 标记分数位置（原步骤3） -->
+  <div class="card hidden" id="step4">
+    <h2>第4步：标记分数打印位置</h2>
+    <p class="subtitle">在答题卡图片上点击每道小题分数要打印的位置。右键点击可撤销上一个标记。</p>
+
+    <div class="config-row" style="background:#f0f7ff;padding:10px 16px;border-radius:8px;margin-bottom:16px;">
       <label>试卷类型：</label>
-      <select id="cfg-double-sided-step3" onchange="onDoubleSidedChange()">
-        <option value="0">单面</option>
-        <option value="1">双面（正反面）</option>
-      </select>
+      <strong id="step4-type-display" style="font-size:14px;">单面</strong>
+      
     </div>
 
-    <div class="config-row" id="side-select-row" style="display:none;">
-      <label>当前标记面：</label>
-      <select id="side-select" onchange="switchSide()">
-        <option value="front">正面</option>
-        <option value="back">背面</option>
-      </select>
-      <span style="font-size:12px;color:#999;">（分别标记正反面位置）</span>
+    <!-- 双面模式下显示两个图片选择器 -->
+    <div id="step4-image-selectors">
+      <div class="config-row">
+        <label>正面样例：</label>
+        <select id="template-image-select-front" onchange="loadTemplateImage('front')" style="min-width:250px;"></select>
+      </div>
+      <div id="back-image-selector-row" class="config-row hidden">
+        <label>背面样例：</label>
+        <select id="template-image-select-back" onchange="loadTemplateImage('back')" style="min-width:250px;"></select>
+      </div>
+      <div class="config-row">
+        <button class="btn btn-sm btn-outline" onclick="refreshImageLists()">刷新图片列表</button>
+      </div>
     </div>
 
     <div class="config-row">
@@ -259,33 +359,57 @@ body { font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; background: #f
       <button class="btn btn-sm btn-danger" onclick="clearAllTemplates()">清除所有模板</button>
     </div>
 
-    <div style="margin:12px 0; display:flex; gap:10px; align-items:center;">
-      <span style="font-size:13px;color:#555;">已标记：<strong id="mark-count">0</strong> 个位置</span>
-      <button class="btn btn-sm btn-outline" onclick="undoLastMark()">撤销最后一个</button>
-      <button class="btn btn-sm btn-danger" onclick="clearAllMarks()">清除全部</button>
-      <span style="font-size:12px;color:#999;margin-left:8px;">（点击图片添加标记，拖拽可移动。标记点会自动对齐吸附已有位置的X/Y坐标，按住 <strong>Alt</strong> 可取消磁吸）</span>
+    <!-- 偏移控件 -->
+    <div class="config-row">
+      <label>X轴偏移：</label>
+      <input type="range" id="x-offset-slider" min="-10" max="10" step="0.1" value="0" oninput="updateOffsets()" style="width:200px;">
+      <span id="x-offset-value" style="font-size:13px;">0%</span>
+    </div>
+    <div class="config-row">
+      <label>Y轴偏移：</label>
+      <input type="range" id="y-offset-slider" min="-10" max="10" step="0.1" value="0" oninput="updateOffsets()" style="width:200px;">
+      <span id="y-offset-value" style="font-size:13px;">0%</span>
     </div>
 
-    <div class="mark-area" id="mark-container">
-      <img id="mark-image" src="" alt="点击图片标记位置" style="max-width:100%;">
+    <div style="margin:12px 0; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+      <span style="font-size:13px;color:#555;">已标记：<strong id="mark-count-front">0</strong>（正面）+ <strong id="mark-count-back">0</strong>（背面）= <strong id="mark-count-total">0</strong> 个位置</span>
+      <button class="btn btn-sm btn-outline" onclick="undoLastMark()">撤销最后一个</button>
+      <button class="btn btn-sm btn-danger" onclick="clearAllMarks()">清除全部</button>
+      <span style="font-size:12px;color:#999;">（点击图片添加标记，拖拽可移动。按住 <strong>Alt</strong> 取消磁吸）</span>
+    </div>
+
+    <!-- 双面：两个图片区域上下排列 -->
+    <div class="dual-mark-wrap" id="dual-mark-wrap">
+      <div class="mark-section" id="mark-section-front">
+        <h3>正面 - 点击标记小题分位置</h3>
+        <div class="mark-area" id="mark-container-front">
+          <img id="mark-image-front" src="" alt="正面样例 - 点击标记" style="max-width:100%;">
+        </div>
+      </div>
+      <div class="mark-section hidden" id="mark-section-back">
+        <h3>背面 - 点击标记小题分位置</h3>
+        <div class="mark-area" id="mark-container-back">
+          <img id="mark-image-back" src="" alt="背面样例 - 点击标记" style="max-width:100%;">
+        </div>
+      </div>
     </div>
 
     <div class="mark-list" id="mark-list" style="margin-top:12px;"></div>
 
     <div class="btn-group">
-      <button class="btn btn-outline" onclick="goToStep(2)">← 上一步</button>
-      <button class="btn btn-primary" id="btn-save-positions" onclick="savePositions()">保存位置，进入下一步</button>
+      <button class="btn btn-outline" onclick="goToStep(3)">← 上一步</button>
+      <button class="btn btn-primary" id="btn-save-positions" onclick="savePositions()">下一步</button>
     </div>
   </div>
 
-  <!-- 步骤4: 处理设置 -->
-  <div class="card hidden" id="step4">
-    <h2>第4步：处理设置</h2>
+  <!-- 步骤5: 处理设置（原步骤4） -->
+  <div class="card hidden" id="step5">
+    <h2>第5步：处理设置</h2>
     <p class="subtitle">配置匹配和输出选项。</p>
 
     <div class="config-row">
       <label>试卷类型：</label>
-      <span id="step4-double-sided-display" style="font-size:13px;">单面</span>
+      <span id="step5-double-sided-display" style="font-size:13px;">单面</span>
     </div>
 
     <div class="config-row">
@@ -300,7 +424,7 @@ body { font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; background: #f
     <div class="config-row">
       <label>字号大小：</label>
       <input type="number" id="cfg-font-size" value="80" min="20" max="500" step="5">
-      <span style="font-size:12px;color:#999;" id="font-size-hint">（印在答题卡上的分数文字大小，将根据模板图片分辨率自动计算建议值）</span>
+      <span style="font-size:12px;color:#999;" id="font-size-hint"></span>
     </div>
 
     <div class="config-row">
@@ -312,15 +436,15 @@ body { font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; background: #f
     </div>
 
     <div class="btn-group">
-      <button class="btn btn-outline" onclick="goToStep(3)">← 上一步</button>
-      <button class="btn btn-primary" onclick="goToStep(5)">下一步：成品预览 →</button>
+      <button class="btn btn-outline" onclick="goToStep(4)">← 上一步</button>
+      <button class="btn btn-primary" onclick="goToStep(6)">下一步：成品预览 →</button>
     </div>
   </div>
 
-  <!-- 步骤5: 成品预览 -->
-  <div class="card hidden" id="step5">
-    <h2>第5步：成品预览</h2>
-    <p class="subtitle">生成一张示例图片以检查分数位置和字号效果，确认无误后再进行批量处理。</p>
+  <!-- 步骤6: 成品预览（原步骤5） -->
+  <div class="card hidden" id="step6">
+    <h2>第6步：成品预览</h2>
+    <p class="subtitle">生成示例图片以检查分数位置和字号效果，确认无误后再进行批量处理。</p>
 
     <div id="preview-status" style="margin-bottom:12px;font-size:13px;color:#999;">点击按钮生成预览</div>
 
@@ -334,15 +458,15 @@ body { font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; background: #f
     </div>
 
     <div class="btn-group">
-      <button class="btn btn-outline" onclick="goToStep(4)">← 上一步</button>
+      <button class="btn btn-outline" onclick="goToStep(5)">← 上一步</button>
       <button class="btn btn-primary" id="btn-generate-preview" onclick="generatePreview()">生成预览</button>
-      <button class="btn btn-success" onclick="goToStep(6)">下一步：处理下载 →</button>
+      <button class="btn btn-success" onclick="goToStep(7)">下一步：处理下载 →</button>
     </div>
   </div>
 
-  <!-- 步骤6: 处理与下载 -->
-  <div class="card hidden" id="step6">
-    <h2>第6步：处理结果</h2>
+  <!-- 步骤7: 处理与下载（原步骤6） -->
+  <div class="card hidden" id="step7">
+    <h2>第7步：处理结果</h2>
     <p class="subtitle" id="process-status-text">等待处理...</p>
 
     <div class="progress-bar hidden" id="progress-bar">
@@ -370,10 +494,42 @@ body { font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; background: #f
     </div>
 
     <div class="btn-group">
-      <button class="btn btn-outline" onclick="goToStep(5)">← 返回预览</button>
+      <button class="btn btn-outline" onclick="goToStep(6)">← 返回预览</button>
       <button class="btn btn-success" id="btn-start-process" onclick="startProcess()">开始处理</button>
       <button class="btn btn-primary hidden" id="btn-save" onclick="pickAndSaveFolder()">保存到本地并清理缓存</button>
     </div>
+  </div>
+</div>
+
+<!-- 全局进度条 -->
+<div class="progress-wrap hidden" id="progress-wrap">
+  <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+    <span style="font-size:13px;font-weight:600;" id="progress-label">处理中...</span>
+    <span style="font-size:12px;color:#888;" id="progress-count">0 / 0</span>
+  </div>
+  <div class="progress-bar-bg">
+    <div class="progress-bar-fill" id="progress-bar-fill" style="width:0%;"></div>
+  </div>
+  <div class="progress-text" id="progress-text">正在准备...</div>
+</div>
+
+<!-- 图片放大查看器 -->
+<div class="img-zoom-overlay hidden" id="img-zoom-overlay">
+  <button class="img-zoom-close" onclick="closeZoom()">&times;</button>
+  <img id="img-zoom-image" src="" alt="放大预览">
+  <div class="img-zoom-hint">滚轮缩放 | 拖动平移 | 单击关闭</div>
+</div>
+
+<!-- 条码区域框选模态框 -->
+<div class="region-modal-overlay hidden" id="region-modal">
+  <div class="toolbar">
+    <span style="color:#fff;font-size:13px;">拖动鼠标框选条码区域</span>
+    <button onclick="confirmBarcodeRegion()">✓ 确认选中区域</button>
+    <button onclick="closeBarcodeRegionModal()">✗ 取消</button>
+  </div>
+  <div class="region-canvas-wrap" id="region-canvas-wrap">
+    <img id="region-sample-img" src="" alt="">
+    <canvas id="region-canvas"></canvas>
   </div>
 </div>
 
@@ -385,14 +541,17 @@ let jobId = null;
 let currentStep = 1;
 let scoreRows = [];
 let allImages = [];
-let marksFront = [];  // [{x, y, el}]
+let marksFront = [];
 let marksBack = [];
-let currentSide = 'front';
-let fullScores = [];           // 每题满分值数组
-let sampleStudentScores = [];  // 第一名学生的小题分数组
-let dragDot = null;            // 当前拖拽的标记点 DOM
-let snapThreshold = 1.0;       // 吸附阈值（百分比）
-let defaultFontSize = 80;      // 根据模板图片分辨率计算的默认字号
+let fullScores = [];
+let sampleStudentScores = [];
+let dragDot = null;
+let dragDotSide = null;
+let snapThreshold = 1.0;
+let defaultFontSize = 80;
+let doubleSided = false;
+let scanResults = null;       // 条码扫描结果
+let studentListData = [];     // 学生列表（供人工匹配下拉用）
 
 // ============================================================
 //  初始化
@@ -417,6 +576,9 @@ async function checkDeps() {
     if (!deps.pyzbar) {
       document.getElementById('barcode-status').textContent = '（⚠ 未安装 pyzbar，条码功能不可用）';
       document.getElementById('cfg-use-barcode').value = '0';
+    } else if (!deps.pyzbar_functional) {
+      document.getElementById('barcode-status').textContent = '（⚠ pyzbar 已安装但无法工作，缺少 VC++ 运行时库，条码功能不可用）';
+      document.getElementById('cfg-use-barcode').value = '0';
     }
     if (!deps.pymupdf) {
       toast('提示：安装 pymupdf 可支持 PDF 文件 (pip install pymupdf)', 'info');
@@ -428,21 +590,18 @@ async function checkDeps() {
 }
 
 // ============================================================
-//  步骤导航 (共6步)
+//  步骤导航 (共7步)
 // ============================================================
 function goToStep(n) {
   const prevStep = currentStep;
-  // 隐藏所有步骤
-  for (let i = 1; i <= 6; i++) {
+  for (let i = 1; i <= 7; i++) {
     const el = document.getElementById('step' + i);
     if (el) el.classList.add('hidden');
   }
-  // 显示目标步骤
   const target = document.getElementById('step' + n);
   if (target) target.classList.remove('hidden');
   currentStep = n;
 
-  // 更新步骤指示器
   document.querySelectorAll('.step').forEach(s => {
     const sn = parseInt(s.dataset.step);
     s.classList.remove('active', 'done');
@@ -450,30 +609,60 @@ function goToStep(n) {
     else if (sn < n) s.classList.add('done');
   });
 
-  // 进入步骤3时加载图片列表和模板
   if (n === 3) {
-    refreshImageList();
-    refreshTemplateList();
-    // 从步骤4回退到步骤3时，自动加载最新模板
-    if (prevStep === 4) {
-      setTimeout(autoLoadLatestTemplate, 500);
-    }
+    // 人工匹配页：自动扫描条码
+    scanBarcodesAndShow();
   }
   if (n === 4) {
-    const double = document.getElementById('cfg-double-sided-step3').value === '1';
-    document.getElementById('step4-double-sided-display').textContent = double ? '双面（正反面）' : '单面';
+    // 标记位置页
+    syncDoubleSidedSelectors();
+    refreshImageLists();
+    refreshTemplateList();
+    setTimeout(autoLoadLatestTemplate, 500);
+    updateMarkList();
+  }
+  if (n === 5) {
+    // 设置页
+    doubleSided = document.getElementById('cfg-double-sided-step2').value === '1';
+    document.getElementById('step5-double-sided-display').textContent = doubleSided ? '双面（正反面）' : '单面';
     if (defaultFontSize) {
       document.getElementById('cfg-font-size').value = defaultFontSize;
     }
   }
-  if (n === 5) {
-    document.getElementById('step5').classList.remove('hidden');
-    // 自动生成预览
+  if (n === 6) {
+    // 预览页：自动生成
+    doubleSided = document.getElementById('cfg-double-sided-step2').value === '1';
     setTimeout(generatePreview, 300);
   }
-  if (n === 6) document.getElementById('step6').classList.remove('hidden');
+  if (n === 7) {
+    document.getElementById('step7').classList.remove('hidden');
+    setTimeout(() => startProcess(), 500);
+  }
 
   window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ============================================================
+//  双面/单面同步
+// ============================================================
+function onDoubleSidedChangeStep2() {
+  doubleSided = document.getElementById('cfg-double-sided-step2').value === '1';
+}
+
+function syncDoubleSidedSelectors() {
+  doubleSided = document.getElementById('cfg-double-sided-step2').value === '1';
+  document.getElementById('step4-type-display').textContent = doubleSided ? '双面（正反面）' : '单面';
+  document.getElementById('back-image-selector-row').classList.toggle('hidden', !doubleSided);
+  document.getElementById('mark-section-back').classList.toggle('hidden', !doubleSided);
+  if (doubleSided) {
+    loadTemplateImage('front');
+    loadTemplateImage('back');
+  } else {
+    loadTemplateImage('front');
+    clearBackContainer();
+    marksBack = [];
+  }
+  updateMarkList();
 }
 
 // ============================================================
@@ -502,6 +691,8 @@ function setupDropzone(dropId, inputId, handler) {
 // ============================================================
 //  步骤1: 处理成绩文件
 // ============================================================
+let currentSheet = null;
+
 async function handleScoreFile(files) {
   if (!files.length) return;
   const file = files[0];
@@ -523,19 +714,60 @@ async function handleScoreFile(files) {
     const data = await res.json();
     if (data.error) { toast(data.error, 'err'); status.textContent = ''; return; }
 
-    scoreRows = data.preview;
-    status.innerHTML = `<span class="tag tag-ok">已解析 ${data.total_rows} 行数据</span>`;
+    currentSheet = data.active_sheet || null;
+    renderScoreResult(data);
 
-    renderScoreTable(data.preview, data.max_cols);
-    document.getElementById('score-preview').classList.remove('hidden');
-    document.getElementById('score-config').classList.remove('hidden');
-
-    populateScoreConfig(data.total_rows, data.max_cols);
+    // 如果有多个工作表，显示工作表选择器
+    if (data.sheet_names && data.sheet_names.length > 1) {
+      const sel = document.getElementById('sheet-select');
+      sel.innerHTML = data.sheet_names.map(sn =>
+        `<option value="${sn}" ${sn === currentSheet ? 'selected' : ''}>${sn}</option>`
+      ).join('');
+      document.getElementById('sheet-selector').classList.remove('hidden');
+    } else {
+      document.getElementById('sheet-selector').classList.add('hidden');
+    }
 
   } catch (e) {
     toast('上传失败: ' + e.message, 'err');
     status.textContent = '';
   }
+}
+
+async function switchSheet() {
+  const sheetName = document.getElementById('sheet-select').value;
+  if (!sheetName || sheetName === currentSheet) return;
+
+  const status = document.getElementById('score-status');
+  status.innerHTML = '<span style="color:#3498db;">正在切换工作表...</span>';
+
+  const form = new FormData();
+  form.append('job_id', jobId);
+  form.append('sheet_name', sheetName);
+
+  try {
+    const res = await fetch('/api/upload-scores', { method: 'POST', body: form });
+    const data = await res.json();
+    if (data.error) { toast(data.error, 'err'); status.textContent = ''; return; }
+
+    currentSheet = data.active_sheet || sheetName;
+    renderScoreResult(data);
+  } catch (e) {
+    toast('切换工作表失败: ' + e.message, 'err');
+    status.textContent = '';
+  }
+}
+
+function renderScoreResult(data) {
+  const status = document.getElementById('score-status');
+  scoreRows = data.preview;
+  status.innerHTML = `<span class="tag tag-ok">已解析 ${data.total_rows} 行数据${currentSheet ? '（' + currentSheet + '）' : ''}</span>`;
+
+  renderScoreTable(data.preview, data.max_cols);
+  document.getElementById('score-preview').classList.remove('hidden');
+  document.getElementById('score-config').classList.remove('hidden');
+
+  populateScoreConfig(data.total_rows, data.max_cols);
 }
 
 function renderScoreTable(rows, maxCols) {
@@ -559,17 +791,17 @@ function renderScoreTable(rows, maxCols) {
 function populateScoreConfig(totalRows, maxCols) {
   const skipSel = document.getElementById('cfg-skip-rows');
   skipSel.innerHTML = '';
-  for (let i = 0; i < Math.min(totalRows, 5); i++) {
+  for (let i = 0; i < totalRows; i++) {
     skipSel.innerHTML += `<option value="${i}">${i} 行</option>`;
   }
 
-  const colSels = ['cfg-id-column', 'cfg-score-start', 'cfg-score-end', 'cfg-class-column'];
+  const colSels = ['cfg-id-column', 'cfg-name-column', 'cfg-score-start', 'cfg-score-end', 'cfg-class-column'];
   colSels.forEach(id => {
     const sel = document.getElementById(id);
     const prevVal = sel.value;
     sel.innerHTML = '';
-    if (id === 'cfg-class-column' || id === 'cfg-score-end') {
-      sel.innerHTML += `<option value="-1">${id === 'cfg-class-column' ? '不用班级' : '到最后一列'}</option>`;
+    if (id === 'cfg-name-column' || id === 'cfg-class-column' || id === 'cfg-score-end') {
+      sel.innerHTML += `<option value="-1">${id === 'cfg-name-column' ? '不用姓名（以考号代替）' : (id === 'cfg-class-column' ? '不用班级' : '到最后一列')}</option>`;
     }
     for (let c = 0; c < maxCols; c++) {
       sel.innerHTML += `<option value="${c}">第${c+1}列</option>`;
@@ -579,14 +811,16 @@ function populateScoreConfig(totalRows, maxCols) {
 
   const fullSel = document.getElementById('cfg-full-row');
   fullSel.innerHTML = '';
-  for (let i = 0; i < Math.min(totalRows, 3); i++) {
+  for (let i = 0; i < totalRows; i++) {
     fullSel.innerHTML += `<option value="${i}">第${i+1}行</option>`;
   }
 
-  document.getElementById('cfg-skip-rows').value = '2';
+  document.getElementById('cfg-skip-rows').value = '3';
   document.getElementById('cfg-id-column').value = '1';
-  document.getElementById('cfg-full-row').value = '1';
+  document.getElementById('cfg-full-row').value = '2';
   document.getElementById('cfg-score-start').value = '5';
+  document.getElementById('cfg-name-column').value = '2';
+  document.getElementById('cfg-class-column').value = '3';
 }
 
 async function applyScoreConfig() {
@@ -594,6 +828,7 @@ async function applyScoreConfig() {
     job_id: jobId,
     skip_rows: parseInt(document.getElementById('cfg-skip-rows').value),
     id_column: parseInt(document.getElementById('cfg-id-column').value),
+    name_column: parseInt(document.getElementById('cfg-name-column').value),
     full_score_row: parseInt(document.getElementById('cfg-full-row').value),
     score_start_column: parseInt(document.getElementById('cfg-score-start').value),
     score_end_column: parseInt(document.getElementById('cfg-score-end').value),
@@ -630,76 +865,406 @@ async function applyScoreConfig() {
 async function handleImageFiles(files) {
   if (!files.length) return;
   const status = document.getElementById('image-status');
-  status.innerHTML = '<span style="color:#3498db;">正在上传...</span>';
+  let totalImages = 0;
+  let allErrors = [];
 
-  const form = new FormData();
-  form.append('job_id', jobId);
-  for (const f of files) {
-    form.append('files', f);
+  // 文件逐个上传：每个 PDF 一上传就立刻在后端进程池中开始并行渲染页面
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    status.innerHTML = `<span style="color:#3498db;">正在上传 (${i + 1}/${files.length})：${escapeHtml(file.name)}...</span>`;
+
+    const form = new FormData();
+    form.append('job_id', jobId);
+    form.append('files', file);
+
+    try {
+      const res = await fetch('/api/upload-images', { method: 'POST', body: form });
+
+      if (!res.ok) {
+        let errMsg = `服务器错误 (HTTP ${res.status})`;
+        try {
+          const errData = await res.json();
+          if (errData.error) errMsg = errData.error;
+        } catch (_) {
+          if (res.status === 413) errMsg = `${file.name}: 请求体被底层服务器拒绝`;
+        }
+        allErrors.push(errMsg);
+        continue;
+      }
+
+      const data = await res.json();
+      if (data.error) { allErrors.push(data.error); continue; }
+
+      totalImages = data.total_images;
+      allImages = data.images;
+
+      if (data.errors && data.errors.length) {
+        allErrors.push(...data.errors);
+      }
+
+      if (data.pdf_pending && data.pdf_total_pages > 0) {
+        try {
+          const result = await pollUntilDone(`PDF 转换: ${file.name}（${data.pdf_total_pages} 页）`, data.pdf_total_pages);
+          const listRes = await fetch('/api/image-list/' + jobId);
+          const listData = await listRes.json();
+          const prevTotal = totalImages;
+          allImages = listData.images;
+          totalImages = listData.total;
+          if (totalImages <= prevTotal && data.pdf_total_pages > 0) {
+            allErrors.push(`${file.name}: PDF 转换后未生成任何新图片（可能 PDF 损坏或加密）`);
+          }
+          if (result && Array.isArray(result.errors) && result.errors.length) {
+            allErrors.push(...result.errors.map(e => `${file.name}: ${e}`));
+          }
+        } catch (e) {
+          allErrors.push(`${file.name}: PDF 转换失败 - ${e.message}`);
+        }
+      }
+    } catch (e) {
+      allErrors.push(`${file.name}: ${e.message}`);
+    }
   }
 
-  try {
-    const res = await fetch('/api/upload-images', { method: 'POST', body: form });
-    const data = await res.json();
-    if (data.error) { toast(data.error, 'err'); return; }
+  status.innerHTML = `<span class="tag tag-ok">已上传 ${totalImages} 张图片</span>`;
+  if (allErrors.length) {
+    status.innerHTML += `<br><span style="color:#e67e22;font-size:12px;">${allErrors.join('<br>')}</span>`;
+  }
 
-    allImages = data.images;
-    status.innerHTML = `<span class="tag tag-ok">已上传 ${data.total_images} 张图片</span>`;
-    if (data.errors.length) {
-      status.innerHTML += `<br><span style="color:#e67e22;font-size:12px;">${data.errors.join('<br>')}</span>`;
-    }
+  renderThumbnails(allImages);
+  document.getElementById('image-preview').classList.remove('hidden');
 
-    renderThumbnails(data.images);
-    document.getElementById('image-preview').classList.remove('hidden');
-
-  } catch (e) {
-    toast('上传失败: ' + e.message, 'err');
-    status.textContent = '';
+  const useBarcode = document.getElementById('cfg-use-barcode') ? document.getElementById('cfg-use-barcode').value === '1' : true;
+  if (useBarcode && allImages.length > 0) {
+    document.getElementById('barcode-region-config').classList.remove('hidden');
+    const sel = document.getElementById('barcode-sample-select');
+    sel.innerHTML = '<option value="">-- 选择样例图片 --</option>' +
+      allImages.slice(0, 100).map(fn => `<option value="${fn}">${fn}</option>`).join('');
   }
 }
 
 function renderThumbnails(images) {
   const grid = document.getElementById('thumb-grid');
-  grid.innerHTML = images.slice(0, 50).map(fn => `
+  const showN = Math.min(images.length, 20);
+  grid.innerHTML = images.slice(0, showN).map((fn, i) => {
+    const label = doubleSided ? (i % 2 === 0 ? '正面' : '背面') : '';
+    return `
     <div class="thumb-item">
       <img src="/api/preview-image/${jobId}/${encodeURIComponent(fn)}" alt="${fn}" loading="lazy"
            onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22120%22 height=%2290%22><rect fill=%22%23eee%22 width=%22120%22 height=%2290%22/><text x=%2260%22 y=%2250%22 text-anchor=%22middle%22 fill=%22%23999%22 font-size=%2212%22>无预览</text></svg>'">
       <div class="name">${fn.length > 18 ? fn.slice(0, 17) + '…' : fn}</div>
-    </div>
-  `).join('');
-  if (images.length > 50) {
-    grid.innerHTML += `<div style="padding:20px;text-align:center;color:#999;">...还有 ${images.length - 50} 张</div>`;
+      ${label ? `<div class="img-label">${label}</div>` : ''}
+    </div>`;
+  }).join('');
+  if (images.length > showN) {
+    grid.innerHTML += `<div style="padding:20px;text-align:center;color:#999;">...还有 ${images.length - showN} 张图片未显示</div>`;
   }
 }
 
 // ============================================================
-//  步骤3: 标记分数位置
+//  步骤3: 人工匹配
 // ============================================================
-async function refreshImageList() {
+async function scanBarcodesAndShow() {
+  doubleSided = document.getElementById('cfg-double-sided-step2').value === '1';
+  const useBarcode = document.getElementById('cfg-use-barcode') ? document.getElementById('cfg-use-barcode').value === '1' : true;
+
+  const summary = document.getElementById('match-summary');
+  summary.innerHTML = '<span style="color:#3498db;">正在扫描条码...</span>';
+
+  try {
+    // 使用 async 模式，通过进度条展示进度
+    const startRes = await fetch('/api/scan-barcodes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job_id: jobId, double_sided: doubleSided, use_barcode: useBarcode, barcode_region: barcodeRegion, async: true }),
+    });
+    const startData = await startRes.json();
+    if (startData.error) { toast(startData.error, 'err'); return; }
+
+    // 轮询进度
+    scanResults = await pollUntilDone('扫描条码', startData.total || 0);
+    if (!scanResults || scanResults.error) { toast((scanResults && scanResults.error) || '扫描失败', 'err'); return; }
+
+    studentListData = scanResults.student_list || [];
+
+    const matched = scanResults.matched || [];
+    const unmatched = scanResults.unmatched || [];
+    const unmatchedStudents = scanResults.unmatched_students || [];
+
+    const dupBarcodes = scanResults.dup_barcodes || [];
+
+    let summaryHtml = `<p><span class="tag tag-ok">✓ 成功识别 <strong>${matched.length}</strong> 份试卷</span>`;
+    if (dupBarcodes.length > 0) {
+      summaryHtml += ` <span class="tag tag-warn">⚠ ${dupBarcodes.length} 条重复识别的条码</span>`;
+    }
+    if (unmatchedStudents.length > 0) {
+      summaryHtml += ` <span class="tag tag-warn">⚠ ${unmatchedStudents.length} 名学生有成绩但无对应答题卡</span>`;
+    }
+    summaryHtml += '</p>';
+    summary.innerHTML = summaryHtml;
+
+    renderDupBarcodes(dupBarcodes);
+
+    if (unmatched.length === 0) {
+      document.getElementById('match-unmatched-wrap').classList.add('hidden');
+      document.getElementById('match-all-ok').classList.remove('hidden');
+    } else {
+      document.getElementById('match-all-ok').classList.add('hidden');
+      document.getElementById('match-unmatched-wrap').classList.remove('hidden');
+      renderMatchGrid(unmatched);
+    }
+
+  } catch (e) {
+    summary.innerHTML = `<span style="color:#e74c3c;">扫描失败: ${e.message}</span>`;
+  }
+}
+
+function renderMatchGrid(unmatched) {
+  const grid = document.getElementById('match-grid');
+  let html = '';
+
+  unmatched.forEach((item, i) => {
+    const guessedId = item.guessed_id || '';
+    if (doubleSided) {
+      const frontUrl = '/api/preview-image/' + jobId + '/' + encodeURIComponent(item.front_image);
+      const backUrl = item.back_image ? '/api/preview-image/' + jobId + '/' + encodeURIComponent(item.back_image) : '';
+      html += `
+      <div class="match-item" data-pair-idx="${item.pair_idx}">
+        <div class="img-pair">
+          <div>
+            <img src="${frontUrl}" alt="正面" onerror="this.style.display='none'" onclick="openZoom(this.src)" style="cursor:zoom-in;">
+            <div class="img-label">正面</div>
+          </div>
+          ${item.back_image ? `
+          <div>
+            <img src="${backUrl}" alt="背面" onerror="this.style.display='none'" onclick="openZoom(this.src)" style="cursor:zoom-in;">
+            <div class="img-label">背面</div>
+          </div>` : ''}
+        </div>
+        <div class="match-form">
+          <label>这是谁的试卷？</label>
+          <input type="text" class="match-student-input"
+                 placeholder="请输入姓名/姓名首字母/姓名全拼/考号以匹配考生..."
+                 value="${escapeHtml(guessedId)}"
+                 data-pair-idx="${item.pair_idx}"
+                 oninput="onMatchInput(this, event)"
+                 onfocus="onMatchInput(this, event)"
+                 autocomplete="off">
+          <div class="matched-info" style="display:none;" id="match-info-${item.pair_idx}"></div>
+          <div class="student-suggestions" id="suggestions-${item.pair_idx}"></div>
+          <button class="btn btn-sm btn-outline ignore-btn" data-pair-idx="${item.pair_idx}" onclick="ignorePaper(this, '${item.pair_idx}')" style="margin-top:8px;">忽略此试卷</button>
+        </div>
+      </div>`;
+    } else {
+      const imgUrl = '/api/preview-image/' + jobId + '/' + encodeURIComponent(item.image);
+      html += `
+      <div class="match-item" data-idx="${item.idx}">
+        <div class="img-pair">
+          <img src="${imgUrl}" class="single-img" alt="试卷" onerror="this.style.display='none'" onclick="openZoom(this.src)" style="cursor:zoom-in;">
+        </div>
+        <div class="match-form">
+          <label>这是谁的试卷？</label>
+          <input type="text" class="match-student-input"
+                 placeholder="请输入姓名/姓名首字母/姓名全拼/考号以匹配考生..."
+                 value="${escapeHtml(guessedId)}"
+                 data-idx="${item.idx}"
+                 oninput="onMatchInput(this, event)"
+                 onfocus="onMatchInput(this, event)"
+                 autocomplete="off">
+          <div class="matched-info" style="display:none;" id="match-info-${item.idx}"></div>
+          <div class="student-suggestions" id="suggestions-${item.idx}"></div>
+          <button class="btn btn-sm btn-outline ignore-btn" data-idx="${item.idx}" onclick="ignorePaper(this, '${item.idx}')" style="margin-top:8px;">忽略此试卷</button>
+        </div>
+      </div>`;
+    }
+  });
+
+  grid.innerHTML = html;
+}
+
+function onMatchInput(input, event) {
+  const val = input.value.trim().toLowerCase();
+  const idx = input.dataset.pairIdx || input.dataset.idx;
+  const suggDiv = document.getElementById('suggestions-' + idx);
+  const infoDiv = document.getElementById('match-info-' + idx);
+
+  // 隐藏信息
+  if (infoDiv) { infoDiv.style.display = 'none'; }
+
+  if (!val) {
+    suggDiv.style.display = 'none';
+    return;
+  }
+
+  // 模糊匹配：考号、姓名、拼音首字母、全拼、班级
+  const filtered = studentListData.filter(s => {
+    const id = s.student_id.toLowerCase();
+    const name = (s.student_name || '').toLowerCase();
+    const pyi = (s.py_initials || '').toLowerCase();
+    const pyf = (s.py_full || '').toLowerCase();
+    const cls = (s.class_name || '').toLowerCase();
+    return id.includes(val) || name.includes(val) || pyi.includes(val) || pyf.includes(val) || cls.includes(val);
+  }).slice(0, 8);
+
+  if (filtered.length === 0) {
+    suggDiv.style.display = 'none';
+    return;
+  }
+
+  suggDiv.innerHTML = filtered.map(s => `
+    <div class="item" onmousedown="selectMatchStudent('${idx}', '${escapeAttr(s.student_id)}', '${escapeAttr(s.student_name)}', '${escapeAttr(s.class_name)}')">
+      <span class="name">${escapeHtml(s.student_name)}</span>
+      <span class="meta">考号: ${escapeHtml(s.student_id)} | 班级: ${escapeHtml(s.class_name)}</span>
+    </div>
+  `).join('');
+  suggDiv.style.display = 'block';
+}
+
+function selectMatchStudent(idx, studentId, studentName, className) {
+  // 找到对应的输入框
+  const input = document.querySelector(`.match-student-input[data-pair-idx="${idx}"], .match-student-input[data-idx="${idx}"]`);
+  if (input) {
+    input.value = studentId;
+  }
+  document.getElementById('suggestions-' + idx).style.display = 'none';
+
+  const infoDiv = document.getElementById('match-info-' + idx);
+  if (infoDiv) {
+    infoDiv.textContent = `已选择: ${studentName} (${studentId}) — ${className}`;
+    infoDiv.style.display = 'block';
+  }
+}
+
+// 点击空白处关闭建议列表
+document.addEventListener('click', function(e) {
+  if (!e.target.classList.contains('match-student-input') && !e.target.closest('.student-suggestions') && !e.target.closest('.item')) {
+    document.querySelectorAll('.student-suggestions').forEach(d => d.style.display = 'none');
+  }
+});
+
+async function submitManualMatches() {
+  const matches = [];
+  const inputs = document.querySelectorAll('.match-student-input');
+
+  inputs.forEach(input => {
+    const sid = input.value.trim();
+    const idx = input.dataset.pairIdx || input.dataset.idx;
+    if (idx !== undefined && sid) {
+      matches.push({
+        idx: parseInt(idx),
+        student_id: sid,
+      });
+    }
+  });
+
+  // Also collect ignored papers
+  document.querySelectorAll('.ignore-btn.ignored').forEach(btn => {
+    const idx = btn.dataset.idx || btn.dataset.pairIdx;
+    if (idx !== undefined) {
+      matches.push({
+        idx: parseInt(idx),
+        student_id: 'IGNORE',
+      });
+    }
+  });
+
+  if (matches.length > 0) {
+    try {
+      const res = await fetch('/api/manual-match', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job_id: jobId, matches: matches }),
+      });
+      const data = await res.json();
+      if (data.error) { toast(data.error, 'err'); return; }
+      toast(`已保存 ${data.count} 条人工匹配记录`, 'ok');
+    } catch (e) {
+      toast('保存失败: ' + e.message, 'err');
+      return;
+    }
+  }
+  goToStep(4);
+}
+
+function skipManualMatch() {
+  goToStep(4);
+}
+
+// 忽略/取消忽略试卷
+function ignorePaper(btn, idx) {
+  const infoDiv = document.getElementById('match-info-' + idx);
+  if (btn.classList.contains('ignored')) {
+    // 取消忽略
+    btn.classList.remove('ignored');
+    btn.textContent = '忽略此试卷';
+    btn.style.background = '';
+    btn.style.color = '';
+    if (infoDiv) { infoDiv.style.display = 'none'; infoDiv.textContent = ''; }
+    // 恢复输入框
+    const input = document.querySelector('.match-student-input[data-idx="' + idx + '"], .match-student-input[data-pair-idx="' + idx + '"]');
+    if (input) { input.disabled = false; input.value = ''; }
+  } else {
+    // 忽略此试卷
+    btn.classList.add('ignored');
+    btn.textContent = '取消忽略';
+    btn.style.background = '#95a5a6';
+    btn.style.color = '#fff';
+    btn.style.borderColor = '#95a5a6';
+    if (infoDiv) { infoDiv.style.display = 'block'; infoDiv.textContent = '已忽略此试卷'; infoDiv.style.color = '#95a5a6'; }
+    // 禁用输入框
+    const input = document.querySelector('.match-student-input[data-idx="' + idx + '"], .match-student-input[data-pair-idx="' + idx + '"]');
+    if (input) { input.disabled = true; input.value = 'IGNORE'; }
+  }
+}
+
+
+// ============================================================
+//  步骤4: 标记分数位置
+// ============================================================
+async function refreshImageLists() {
   if (!jobId) return;
   try {
     const res = await fetch('/api/image-list/' + jobId);
     const data = await res.json();
     allImages = data.images;
-    const sel = document.getElementById('template-image-select');
-    sel.innerHTML = data.images.map(fn => `<option value="${fn}">${fn}</option>`).join('');
-    if (data.images.length) loadTemplateImage();
+
+    const selFront = document.getElementById('template-image-select-front');
+    selFront.innerHTML = data.images.map(fn => `<option value="${fn}">${fn}</option>`).join('');
+
+    const selBack = document.getElementById('template-image-select-back');
+    selBack.innerHTML = data.images.map(fn => `<option value="${fn}">${fn}</option>`).join('');
+
+    if (data.images.length) {
+      loadTemplateImage('front');
+      if (doubleSided) loadTemplateImage('back');
+    }
   } catch (e) {}
 }
 
-function loadTemplateImage() {
-  const fn = document.getElementById('template-image-select').value;
+function loadTemplateImage(side) {
+  const selId = side === 'front' ? 'template-image-select-front' : 'template-image-select-back';
+  const imgId = side === 'front' ? 'mark-image-front' : 'mark-image-back';
+
+  const selEl = document.getElementById(selId);
+  const fn = selEl.value;
   if (!fn) return;
-  const img = document.getElementById('mark-image');
 
-  clearAllMarks();
+  // 双面模式：选择正面时，自动为背面选择下一张图片
+  if (side === 'front' && doubleSided && allImages.length > 0) {
+    const frontIdx = allImages.indexOf(fn);
+    if (frontIdx >= 0 && frontIdx + 1 < allImages.length) {
+      const backSel = document.getElementById('template-image-select-back');
+      backSel.value = allImages[frontIdx + 1];
+      loadTemplateImage('back');
+    }
+  }
 
+  const img = document.getElementById(imgId);
   const onLoadHandler = function() {
-    if (img.naturalWidth > 0) {
+    if (img.naturalWidth > 0 && side === 'front') {
       defaultFontSize = Math.round(img.naturalWidth * 200 / 9984);
       document.getElementById('cfg-font-size').value = defaultFontSize;
       const hint = document.getElementById('font-size-hint');
-      if (hint) hint.textContent = `（基于模板图片 ${img.naturalWidth}×${img.naturalHeight}，建议字号: ${defaultFontSize}）`;
+      if (hint) hint.textContent = '（基于模板图片 ' + img.naturalWidth + '×' + img.naturalHeight + '，建议字号: ' + defaultFontSize + '）';
     }
   };
   img.onload = onLoadHandler;
@@ -709,32 +1274,321 @@ function loadTemplateImage() {
   }
 }
 
-function switchSide() {
-  const side = document.getElementById('side-select').value;
-  if (currentSide === 'front') marksFront = getCurrentMarks();
-  else marksBack = getCurrentMarks();
-
-  currentSide = side;
-
-  clearMarkDots();
-  const marks = side === 'front' ? marksFront : marksBack;
-  const baseIndex = side === 'front' ? 0 : marksFront.length;
-  marks.forEach((m, i) => addMarkDot(m.x, m.y, baseIndex + i));
-  updateMarkList();
+function updateOffsets() {
+  const xVal = parseFloat(document.getElementById('x-offset-slider').value);
+  const yVal = parseFloat(document.getElementById('y-offset-slider').value);
+  document.getElementById('x-offset-value').textContent = xVal.toFixed(1) + '%';
+  document.getElementById('y-offset-value').textContent = yVal.toFixed(1) + '%';
 }
 
-function onDoubleSidedChange() {
-  const double = document.getElementById('cfg-double-sided-step3').value === '1';
-  document.getElementById('side-select-row').style.display = double ? '' : 'none';
-  if (!double) {
-    currentSide = 'front';
-    document.getElementById('side-select').value = 'front';
+// ---- 标记点管理 ----
+function setupMarkImageClick(side) {
+  const imgId = 'mark-image-' + side;
+  const containerId = 'mark-container-' + side;
+  const img = document.getElementById(imgId);
+  const container = document.getElementById(containerId);
+
+  if (!img._clickBound) {
+    img._clickBound = true;
+    img.addEventListener('click', function(e) {
+      const rect = img.getBoundingClientRect();
+      let xPct = ((e.clientX - rect.left) / rect.width) * 100;
+      let yPct = ((e.clientY - rect.top) / rect.height) * 100;
+
+      const marks = side === 'front' ? marksFront : marksBack;
+      const totalMarks = marksFront.length + marksBack.length;
+      const questionCount = fullScores.length;
+      if (questionCount > 0 && totalMarks >= questionCount) {
+        alert('已标记 ' + questionCount + ' 个位置，与成绩表中小题数量一致，无法继续添加。');
+        return;
+      }
+
+      if (!e.altKey) {
+        const snapped = snapPosition(xPct, yPct, null, side);
+        xPct = snapped.x;
+        yPct = snapped.y;
+      }
+
+      const frontCount = marksFront.length;
+      const globalIdx = side === 'front' ? marks.length : frontCount + marks.length;
+      marks.push({ x: xPct, y: yPct });
+
+      // Alert when reaching the exact number of questions
+      if (questionCount > 0 && (marksFront.length + marksBack.length) >= questionCount) {
+        setTimeout(() => alert('已标记 ' + questionCount + ' 个位置，与成绩表中小题数量一致。'), 100);
+      }
+
+      addMarkDot(xPct, yPct, globalIdx, side);
+      updateMarkList();
+    });
+
+    img.addEventListener('contextmenu', function(e) {
+      e.preventDefault();
+      undoLastMark();
+    });
   }
 }
 
-// ============================================================
-//  位置模板管理
-// ============================================================
+function addMarkDot(x, y, index, side) {
+  const containerId = 'mark-container-' + side;
+  const container = document.getElementById(containerId);
+  const dot = document.createElement('div');
+  dot.className = 'mark-dot';
+  dot.dataset.x = x.toFixed(2);
+  dot.dataset.y = y.toFixed(2);
+  dot.dataset.side = side;
+  dot.style.left = x.toFixed(2) + '%';
+  dot.style.top = y.toFixed(2) + '%';
+  dot.textContent = getMarkText(index);
+  dot.title = '第' + (index + 1) + '题 (' + (side === 'front' ? '正面' : '背面') + ') — 拖拽可移动位置';
+  dot.addEventListener('mousedown', onDotMouseDown);
+  container.appendChild(dot);
+}
+
+function onDotMouseDown(e) {
+  e.stopPropagation();
+  e.preventDefault();
+  dragDot = e.target;
+  dragDotSide = dragDot.dataset.side || 'front';
+  dragDot.classList.add('dragging');
+}
+
+document.addEventListener('mousemove', function(e) {
+  if (!dragDot) return;
+  const side = dragDotSide;
+  const img = document.getElementById('mark-image-' + side);
+  if (!img) return;
+  const imgRect = img.getBoundingClientRect();
+  let xPct = ((e.clientX - imgRect.left) / imgRect.width) * 100;
+  let yPct = ((e.clientY - imgRect.top) / imgRect.height) * 100;
+
+  xPct = Math.max(0, Math.min(100, xPct));
+  yPct = Math.max(0, Math.min(100, yPct));
+
+  if (!e.altKey) {
+    const snapped = snapPosition(xPct, yPct, dragDot, side);
+    xPct = snapped.x;
+    yPct = snapped.y;
+  }
+
+  dragDot.style.left = xPct.toFixed(2) + '%';
+  dragDot.style.top = yPct.toFixed(2) + '%';
+  dragDot.dataset.x = xPct.toFixed(2);
+  dragDot.dataset.y = yPct.toFixed(2);
+});
+
+document.addEventListener('mouseup', function(e) {
+  if (!dragDot) return;
+  dragDot.classList.remove('dragging');
+
+  // 同步更新对应 marks 数组
+  const side = dragDotSide;
+  const container = document.getElementById('mark-container-' + side);
+  if (container) {
+    const dots = container.querySelectorAll('.mark-dot');
+    const marksArray = side === 'front' ? marksFront : marksBack;
+    marksArray.length = 0;
+    dots.forEach(d => {
+      marksArray.push({ x: parseFloat(d.dataset.x), y: parseFloat(d.dataset.y) });
+    });
+  }
+
+  dragDot = null;
+  dragDotSide = null;
+  updateMarkList();
+});
+
+function snapPosition(x, y, excludeDot, side) {
+  const container = document.getElementById('mark-container-' + side);
+  if (!container) return { x, y };
+  const dots = container.querySelectorAll('.mark-dot');
+  let snappedX = x;
+  let snappedY = y;
+  dots.forEach(dot => {
+    if (dot === excludeDot) return;
+    const dx = Math.abs(x - parseFloat(dot.dataset.x));
+    const dy = Math.abs(y - parseFloat(dot.dataset.y));
+    if (dx < snapThreshold) snappedX = parseFloat(dot.dataset.x);
+    if (dy < snapThreshold) snappedY = parseFloat(dot.dataset.y);
+  });
+  return { x: snappedX, y: snappedY };
+}
+
+function getMarkText(index) {
+  if (sampleStudentScores.length > index && fullScores.length > index) {
+    return sampleStudentScores[index] + '/' + fullScores[index];
+  }
+  if (fullScores.length > index) {
+    return '?/' + fullScores[index];
+  }
+  return String(index + 1);
+}
+
+function getCurrentMarks(side) {
+  const container = document.getElementById('mark-container-' + side);
+  if (!container) return [];
+  const marks = [];
+  container.querySelectorAll('.mark-dot').forEach(dot => {
+    marks.push({ x: parseFloat(dot.dataset.x), y: parseFloat(dot.dataset.y) });
+  });
+  return marks;
+}
+
+function clearMarkDots(side) {
+  const container = document.getElementById('mark-container-' + side);
+  if (container) {
+    container.querySelectorAll('.mark-dot').forEach(d => d.remove());
+  }
+}
+
+function clearBackContainer() {
+  clearMarkDots('back');
+}
+
+function undoLastMark() {
+  // 先尝试撤销背面的最后一个，再正面
+  const backDots = document.querySelectorAll('#mark-container-back .mark-dot');
+  if (backDots.length) {
+    backDots[backDots.length - 1].remove();
+    marksBack.pop();
+  } else {
+    const frontDots = document.querySelectorAll('#mark-container-front .mark-dot');
+    if (frontDots.length) {
+      frontDots[frontDots.length - 1].remove();
+      marksFront.pop();
+    }
+  }
+  updateMarkList();
+}
+
+function clearAllMarks() {
+  clearMarkDots('front');
+  clearMarkDots('back');
+  marksFront = [];
+  marksBack = [];
+  updateMarkList();
+}
+
+function updateMarkList() {
+  const frontMarks = getCurrentMarks('front');
+  const backMarks = getCurrentMarks('back');
+  marksFront = frontMarks;
+  marksBack = backMarks;
+
+  document.getElementById('mark-count-front').textContent = frontMarks.length;
+  document.getElementById('mark-count-back').textContent = backMarks.length;
+  document.getElementById('mark-count-total').textContent = frontMarks.length + backMarks.length;
+
+  const list = document.getElementById('mark-list');
+  if (!frontMarks.length && !backMarks.length) { list.innerHTML = ''; return; }
+
+  const xOff = parseFloat(document.getElementById('x-offset-slider').value);
+  const yOff = parseFloat(document.getElementById('y-offset-slider').value);
+
+  let html = '<table><thead><tr><th>小题序号</th><th>面</th><th>显示内容</th><th>原始X(%)</th><th>原始Y(%)</th><th>调整后X(%)</th><th>调整后Y(%)</th></tr></thead><tbody>';
+  let idx = 0;
+
+  frontMarks.forEach(m => {
+    html += `<tr>
+      <td>第${idx + 1}题</td><td>正面</td>
+      <td>${getMarkText(idx)}</td>
+      <td>${m.x.toFixed(1)}</td><td>${m.y.toFixed(1)}</td>
+      <td>${(m.x + xOff).toFixed(1)}</td><td>${(m.y + yOff).toFixed(1)}</td>
+    </tr>`;
+    idx++;
+  });
+
+  backMarks.forEach(m => {
+    html += `<tr>
+      <td>第${idx + 1}题</td><td>背面</td>
+      <td>${getMarkText(idx)}</td>
+      <td>${m.x.toFixed(1)}</td><td>${m.y.toFixed(1)}</td>
+      <td>${(m.x + xOff).toFixed(1)}</td><td>${(m.y + yOff).toFixed(1)}</td>
+    </tr>`;
+    idx++;
+  });
+
+  html += '</tbody></table>';
+  list.innerHTML = html;
+}
+
+async function savePositions() {
+  const xOff = parseFloat(document.getElementById('x-offset-slider').value);
+  const yOff = parseFloat(document.getElementById('y-offset-slider').value);
+
+  marksFront = getCurrentMarks('front');
+  marksBack = getCurrentMarks('back');
+
+  const posFront = marksFront.map(m => ({ x: m.x, y: m.y }));
+  if (posFront.length === 0) {
+    toast('请先在图片上点击标记至少一个位置', 'err');
+    return;
+  }
+
+  // 保存正面
+  try {
+    const res = await fetch('/api/save-positions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job_id: jobId, side: 'front', positions: posFront, y_offset: yOff, x_offset: xOff }),
+    });
+    const data = await res.json();
+    if (data.error) { toast(data.error, 'err'); return; }
+    toast(`正面位置已保存：${data.count} 个标记点`, 'ok');
+  } catch (e) {
+    toast('保存失败: ' + e.message, 'err');
+    return;
+  }
+
+  // 双面：保存背面
+  if (doubleSided) {
+    const posBack = marksBack.map(m => ({ x: m.x, y: m.y }));
+    if (posBack.length === 0) {
+      toast('双面模式需要标记背面的位置，请在背面图片上点击标记', 'err');
+      return;
+    }
+    try {
+      await fetch('/api/save-positions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job_id: jobId, side: 'back', positions: posBack, y_offset: yOff, x_offset: xOff }),
+      });
+      toast(`背面位置已保存：${posBack.length} 个标记点`, 'ok');
+    } catch (e) {}
+  }
+
+  // 自动保存模板
+  try {
+    const now = new Date();
+    const autoName = now.getFullYear() + '-' +
+      String(now.getMonth() + 1).padStart(2, '0') + '-' +
+      String(now.getDate()).padStart(2, '0') + ' ' +
+      String(now.getHours()).padStart(2, '0') + ':' +
+      String(now.getMinutes()).padStart(2, '0') + ':' +
+      String(now.getSeconds()).padStart(2, '0');
+    await fetch('/api/position-templates/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: autoName,
+        positions_front: marksFront,
+        positions_back: marksBack,
+        y_offset: yOff,
+        x_offset: xOff,
+      }),
+    });
+  } catch (e) {}
+
+  // Check mark count matches question count
+  const totalMarks = marksFront.length + marksBack.length;
+  const questionCount = fullScores.length;
+  if (totalMarks < questionCount) {
+    alert('当前仅标记了 ' + totalMarks + ' 个位置，但成绩表中有 ' + questionCount + ' 道小题。\n\n请确认是否已标记完所有小题的位置？');
+  }
+  goToStep(5);
+}
+
+// ---- 位置模板 ----
 async function refreshTemplateList() {
   try {
     const res = await fetch('/api/position-templates/list');
@@ -752,7 +1606,6 @@ async function autoLoadLatestTemplate() {
     const res = await fetch('/api/position-templates/list');
     const data = await res.json();
     if (data.templates.length === 0) return;
-    // 按文件名排序取最新（文件名含时间戳）
     const latest = data.templates[data.templates.length - 1];
     document.getElementById('template-load-select').value = latest.filename;
     await loadPositionTemplate();
@@ -763,8 +1616,8 @@ async function savePositionTemplate() {
   const name = prompt('请输入模板名称（例如：高三数学月考）：');
   if (!name) return;
 
-  if (currentSide === 'front') marksFront = getCurrentMarks();
-  else marksBack = getCurrentMarks();
+  marksFront = getCurrentMarks('front');
+  marksBack = getCurrentMarks('back');
 
   const xOff = parseFloat(document.getElementById('x-offset-slider').value);
   const yOff = parseFloat(document.getElementById('y-offset-slider').value);
@@ -820,265 +1673,28 @@ async function loadPositionTemplate() {
     document.getElementById('x-offset-slider').value = tpl.x_offset || 0;
     updateOffsets();
 
-    clearMarkDots();
-    const marks = currentSide === 'front' ? marksFront : marksBack;
-    const baseIndex = currentSide === 'front' ? 0 : marksFront.length;
-    marks.forEach((m, i) => addMarkDot(m.x, m.y, baseIndex + i));
+    clearMarkDots('front');
+    clearMarkDots('back');
+
+    marksFront.forEach((m, i) => addMarkDot(m.x, m.y, i, 'front'));
+    marksBack.forEach((m, i) => addMarkDot(m.x, m.y, marksFront.length + i, 'back'));
+
+    if (marksBack.length > 0) {
+      doubleSided = true;
+      document.getElementById('cfg-double-sided-step2').value = '1';
+      document.getElementById('cfg-double-sided-step2').value = '1';
+    }
+    syncDoubleSidedSelectors();
+
     updateMarkList();
-
-    const double = marksBack.length > 0;
-    document.getElementById('cfg-double-sided-step3').value = double ? '1' : '0';
-    onDoubleSidedChange();
-
     toast(`已加载模板: ${tpl.name}`, 'ok');
   } catch (e) {
     toast('加载失败: ' + e.message, 'err');
   }
 }
 
-function getCurrentMarks() {
-  const marks = [];
-  document.querySelectorAll('.mark-dot').forEach(dot => {
-    marks.push({ x: parseFloat(dot.dataset.x), y: parseFloat(dot.dataset.y) });
-  });
-  return marks;
-}
-
-document.getElementById('mark-image').addEventListener('click', function(e) {
-  const img = e.target;
-  const rect = img.getBoundingClientRect();
-  let xPct = ((e.clientX - rect.left) / rect.width) * 100;
-  let yPct = ((e.clientY - rect.top) / rect.height) * 100;
-
-  if (!e.altKey) {
-    const snapped = snapPosition(xPct, yPct, null);
-    xPct = snapped.x;
-    yPct = snapped.y;
-  }
-
-  const currentMarks = document.querySelectorAll('.mark-dot').length;
-  const baseIndex = currentSide === 'front' ? 0 : marksFront.length;
-  addMarkDot(xPct, yPct, baseIndex + currentMarks);
-  updateMarkList();
-});
-
-document.getElementById('mark-image').addEventListener('contextmenu', function(e) {
-  e.preventDefault();
-  undoLastMark();
-});
-
-function snapPosition(x, y, excludeDot) {
-  const dots = document.querySelectorAll('.mark-dot');
-  let snappedX = x;
-  let snappedY = y;
-  dots.forEach(dot => {
-    if (dot === excludeDot) return;
-    const dx = Math.abs(x - parseFloat(dot.dataset.x));
-    const dy = Math.abs(y - parseFloat(dot.dataset.y));
-    if (dx < snapThreshold) snappedX = parseFloat(dot.dataset.x);
-    if (dy < snapThreshold) snappedY = parseFloat(dot.dataset.y);
-  });
-  return { x: snappedX, y: snappedY };
-}
-
-function getMarkText(index) {
-  if (sampleStudentScores.length > index && fullScores.length > index) {
-    return sampleStudentScores[index] + '/' + fullScores[index];
-  }
-  if (fullScores.length > index) {
-    return '?/' + fullScores[index];
-  }
-  return String(index + 1);
-}
-
-function addMarkDot(x, y, index) {
-  const container = document.getElementById('mark-container');
-  const dot = document.createElement('div');
-  dot.className = 'mark-dot';
-  dot.dataset.x = x.toFixed(2);
-  dot.dataset.y = y.toFixed(2);
-  dot.style.left = x.toFixed(2) + '%';
-  dot.style.top = y.toFixed(2) + '%';
-  dot.textContent = getMarkText(index);
-  dot.title = '第' + (index + 1) + '题 — 拖拽可移动位置';
-  dot.addEventListener('mousedown', onDotMouseDown);
-  container.appendChild(dot);
-}
-
-// ---- 拖拽标记点 ----
-function onDotMouseDown(e) {
-  e.stopPropagation();
-  e.preventDefault();
-  dragDot = e.target;
-  dragDot.classList.add('dragging');
-  dragDot.dataset.startX = e.clientX;
-  dragDot.dataset.startY = e.clientY;
-  dragDot.dataset.origLeft = dragDot.style.left;
-  dragDot.dataset.origTop = dragDot.style.top;
-}
-
-document.addEventListener('mousemove', function(e) {
-  if (!dragDot) return;
-  const img = document.getElementById('mark-image');
-  const imgRect = img.getBoundingClientRect();
-  let xPct = ((e.clientX - imgRect.left) / imgRect.width) * 100;
-  let yPct = ((e.clientY - imgRect.top) / imgRect.height) * 100;
-
-  xPct = Math.max(0, Math.min(100, xPct));
-  yPct = Math.max(0, Math.min(100, yPct));
-
-  if (!e.altKey) {
-    const snapped = snapPosition(xPct, yPct, dragDot);
-    xPct = snapped.x;
-    yPct = snapped.y;
-  }
-
-  dragDot.style.left = xPct.toFixed(2) + '%';
-  dragDot.style.top = yPct.toFixed(2) + '%';
-  dragDot.dataset.x = xPct.toFixed(2);
-  dragDot.dataset.y = yPct.toFixed(2);
-});
-
-document.addEventListener('mouseup', function(e) {
-  if (!dragDot) return;
-  dragDot.classList.remove('dragging');
-  dragDot = null;
-  updateMarkList();
-});
-
-function clearMarkDots() {
-  document.querySelectorAll('.mark-dot').forEach(d => d.remove());
-}
-
-function undoLastMark() {
-  const dots = document.querySelectorAll('.mark-dot');
-  if (dots.length) dots[dots.length - 1].remove();
-  updateMarkList();
-}
-
-function clearAllMarks() {
-  clearMarkDots();
-  marksFront = [];
-  marksBack = [];
-  currentSide = 'front';
-  document.getElementById('side-select').value = 'front';
-  updateMarkList();
-}
-
-function updateOffsets() {
-  const xVal = parseFloat(document.getElementById('x-offset-slider').value);
-  const yVal = parseFloat(document.getElementById('y-offset-slider').value);
-  document.getElementById('x-offset-value').textContent = xVal.toFixed(1) + '%';
-  document.getElementById('y-offset-value').textContent = yVal.toFixed(1) + '%';
-}
-
-function updateMarkList() {
-  const dots = document.querySelectorAll('.mark-dot');
-  const count = dots.length;
-  document.getElementById('mark-count').textContent = count;
-
-  const list = document.getElementById('mark-list');
-  if (!count) { list.innerHTML = ''; return; }
-
-  const xOff = parseFloat(document.getElementById('x-offset-slider').value);
-  const yOff = parseFloat(document.getElementById('y-offset-slider').value);
-  let html = '<table><thead><tr><th>小题序号</th><th>显示内容</th><th>原始X(%)</th><th>原始Y(%)</th><th>调整后X(%)</th><th>调整后Y(%)</th></tr></thead><tbody>';
-  dots.forEach((dot, i) => {
-    const x = parseFloat(dot.dataset.x);
-    const y = parseFloat(dot.dataset.y);
-    html += `<tr>
-      <td>第${i+1}题</td>
-      <td>${dot.textContent}</td>
-      <td>${x.toFixed(1)}</td>
-      <td>${y.toFixed(1)}</td>
-      <td>${(x + xOff).toFixed(1)}</td>
-      <td>${(y + yOff).toFixed(1)}</td>
-    </tr>`;
-  });
-  html += '</tbody></table>';
-  list.innerHTML = html;
-}
-
-async function savePositions() {
-  const xOff = parseFloat(document.getElementById('x-offset-slider').value);
-  const yOff = parseFloat(document.getElementById('y-offset-slider').value);
-
-  // 保存当前面
-  if (currentSide === 'front') marksFront = getCurrentMarks();
-  else marksBack = getCurrentMarks();
-
-  // 保存正面位置
-  const posFront = marksFront.map(m => ({ x: m.x, y: m.y }));
-  if (posFront.length === 0) {
-    toast('请先在图片上点击标记至少一个位置', 'err');
-    return;
-  }
-  try {
-    const res = await fetch('/api/save-positions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ job_id: jobId, side: 'front', positions: posFront, y_offset: yOff, x_offset: xOff }),
-    });
-    const data = await res.json();
-    if (data.error) { toast(data.error, 'err'); return; }
-    toast(`正面位置已保存：${data.count} 个标记点`, 'ok');
-  } catch (e) {
-    toast('保存失败: ' + e.message, 'err');
-    return;
-  }
-
-  // 如果是双面模式，保存背面
-  const doubleSided = document.getElementById('cfg-double-sided-step3').value === '1';
-  if (doubleSided) {
-    if (currentSide !== 'back') {
-      if (confirm('当前在正面，是否切换到背面标记？\n（背面位置将使用当前已保存的背面标记）')) {
-        document.getElementById('side-select').value = 'back';
-        switchSide();
-        toast('请先在背面图片上点击标记位置，然后再次点击"保存位置"', 'info');
-        return;
-      }
-    }
-    const posBack = marksBack.map(m => ({ x: m.x, y: m.y }));
-    if (posBack.length === 0) {
-      toast('双面模式需要标记背面的位置，请切换并点击标记', 'err');
-      return;
-    }
-    try {
-      await fetch('/api/save-positions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ job_id: jobId, side: 'back', positions: posBack, y_offset: yOff, x_offset: xOff }),
-      });
-    } catch (e) {}
-  }
-
-  // 自动保存模板（以当前日期时间命名）
-  try {
-    const now = new Date();
-    const autoName = now.getFullYear() + '-' +
-      String(now.getMonth() + 1).padStart(2, '0') + '-' +
-      String(now.getDate()).padStart(2, '0') + ' ' +
-      String(now.getHours()).padStart(2, '0') + ':' +
-      String(now.getMinutes()).padStart(2, '0') + ':' +
-      String(now.getSeconds()).padStart(2, '0');
-    await fetch('/api/position-templates/save', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: autoName,
-        positions_front: marksFront,
-        positions_back: marksBack,
-        y_offset: yOff,
-        x_offset: xOff,
-      }),
-    });
-  } catch (e) {}
-
-  goToStep(4);
-}
-
 // ============================================================
-//  步骤5: 成品预览
+//  步骤6: 成品预览
 // ============================================================
 async function generatePreview() {
   const status = document.getElementById('preview-status');
@@ -1086,8 +1702,8 @@ async function generatePreview() {
   status.textContent = '正在生成预览...';
   btn.disabled = true;
 
-  const doubleSided = document.getElementById('cfg-double-sided-step3').value === '1';
   const fontSize = parseInt(document.getElementById('cfg-font-size').value);
+  const dblSided = document.getElementById('cfg-double-sided-step2').value === '1';
 
   try {
     const res = await fetch('/api/preview-result', {
@@ -1096,7 +1712,7 @@ async function generatePreview() {
       body: JSON.stringify({
         job_id: jobId,
         font_size: fontSize,
-        double_sided: doubleSided,
+        double_sided: dblSided,
       }),
     });
     const data = await res.json();
@@ -1108,13 +1724,11 @@ async function generatePreview() {
 
     status.textContent = '预览已生成（以下是第一名学生的效果）';
 
-    // 正面预览
     const frontWrap = document.getElementById('preview-front-wrap');
     const frontImg = document.getElementById('preview-front-img');
     frontImg.src = data.front_preview_url + '?t=' + Date.now();
     frontWrap.classList.remove('hidden');
 
-    // 背面预览
     const backWrap = document.getElementById('preview-back-wrap');
     if (data.back_preview_url) {
       const backImg = document.getElementById('preview-back-img');
@@ -1131,40 +1745,53 @@ async function generatePreview() {
 }
 
 // ============================================================
-//  步骤6: 处理
+//  步骤7: 处理
 // ============================================================
 async function startProcess() {
   const btn = document.getElementById('btn-start-process');
   btn.disabled = true;
   btn.textContent = '正在处理...';
 
-  const doubleSided = document.getElementById('cfg-double-sided-step3').value === '1';
   const useBarcode = document.getElementById('cfg-use-barcode').value === '1';
   const fontSize = parseInt(document.getElementById('cfg-font-size').value);
   const classFolders = document.getElementById('cfg-class-folders').value === '1';
+  const dblSided = document.getElementById('cfg-double-sided-step2').value === '1';
 
   document.getElementById('progress-bar').classList.remove('hidden');
-  document.getElementById('progress-fill').style.width = '30%';
+  document.getElementById('progress-fill').style.width = '0%';
   document.getElementById('process-status-text').textContent = '正在匹配考号并生成图片...';
 
   try {
-    const res = await fetch('/api/process', {
+    // 使用 async 模式，通过进度条展示进度
+    const startRes = await fetch('/api/process', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         job_id: jobId,
-        double_sided: doubleSided,
+        double_sided: dblSided,
         use_barcode: useBarcode,
         font_size: fontSize,
         create_class_folders: classFolders,
+        async: true,
       }),
     });
-    const data = await res.json();
-    document.getElementById('progress-fill').style.width = '100%';
-
-    if (data.error) {
+    const startData = await startRes.json();
+    if (startData.error) {
       document.getElementById('process-status-text').textContent = '处理失败';
-      document.getElementById('process-result').innerHTML = `<p style="color:#e74c3c;">${data.error}</p>`;
+      document.getElementById('process-result').innerHTML = `<p style="color:#e74c3c;">${startData.error}</p>`;
+      btn.disabled = false;
+      btn.textContent = '重试';
+      return;
+    }
+
+    // 轮询进度
+    const data = await pollUntilDone('生成答题卡图片', startData.total || 0);
+    document.getElementById('progress-fill').style.width = '100%';
+    document.getElementById('progress-bar').classList.add('hidden');
+
+    if (!data || data.error) {
+      document.getElementById('process-status-text').textContent = '处理失败';
+      document.getElementById('process-result').innerHTML = `<p style="color:#e74c3c;">${data.error || '处理失败'}</p>`;
       btn.disabled = false;
       btn.textContent = '重试';
       return;
@@ -1172,13 +1799,13 @@ async function startProcess() {
 
     document.getElementById('process-status-text').textContent = '处理完成！';
     let resultHtml = `
-      <p><span class="tag tag-ok">✓ 成功匹配 <strong>${data.matched}</strong> 名学生</span></p>`;
+      <p><span class="tag tag-ok">✓ 成功匹配 <strong>${data.matched_count}</strong> 名学生</span></p>`;
 
-    if (data.unmatched_students > 0) {
-      resultHtml += `<p><span class="tag tag-warn">⚠ ${data.unmatched_students} 名学生有成绩但无对应答题卡</span></p>`;
+    if (data.unmatched_students && data.unmatched_students.length > 0) {
+      resultHtml += `<p><span class="tag tag-warn">⚠ ${data.unmatched_students.length} 名学生有成绩但无对应答题卡</span></p>`;
     }
-    if (data.unmatched_images > 0) {
-      resultHtml += `<p><span class="tag tag-warn">⚠ ${data.unmatched_images} 张答题卡未能匹配到成绩（已放入"无条码"文件夹）</span></p>`;
+    if (data.unmatched_images && data.unmatched_images.length > 0) {
+      resultHtml += `<p><span class="tag tag-warn">⚠ ${data.unmatched_images.length} 张答题卡未能匹配到成绩（已放入"无条码"文件夹）</span></p>`;
     }
 
     document.getElementById('process-result').innerHTML = resultHtml;
@@ -1193,11 +1820,9 @@ async function startProcess() {
 
   btn.disabled = false;
   btn.textContent = '开始处理';
-  goToStep(6);
 }
 
 async function pickAndSaveFolder() {
-  // 检查浏览器是否支持 File System Access API
   if (!('showDirectoryPicker' in window)) {
     document.getElementById('save-fallback').classList.remove('hidden');
     toast('当前浏览器不支持原生文件夹选择，请使用下方输入框', 'info');
@@ -1215,7 +1840,7 @@ async function pickAndSaveFolder() {
   try {
     dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
   } catch (e) {
-    if (e.name === 'AbortError') return;  // 用户取消
+    if (e.name === 'AbortError') return;
     toast('打开文件夹选择框失败: ' + e.message, 'err');
     return;
   }
@@ -1259,7 +1884,6 @@ async function pickAndSaveFolder() {
       }
     }
 
-    // 清理服务器缓存
     updateButtons(true, '正在清理缓存...');
     try { await fetch('/api/cleanup/' + jobId, { method: 'POST' }); } catch (e) {}
 
@@ -1280,7 +1904,6 @@ async function pickAndSaveFolder() {
   updateButtons(false, '保存到本地并清理缓存');
 }
 
-// 回退：不支持 showDirectoryPicker 的浏览器
 async function saveToFolderFallback() {
   const targetPath = document.getElementById('save-path').value.trim();
   if (!targetPath) { toast('请先输入保存路径', 'err'); return; }
@@ -1312,7 +1935,7 @@ async function saveToFolderFallback() {
 }
 
 // ============================================================
-//  通知
+//  通知 & 工具
 // ============================================================
 function toast(msg, type) {
   const el = document.createElement('div');
@@ -1322,8 +1945,257 @@ function toast(msg, type) {
   setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 3000);
 }
 
+// ============================================================
+//  进度条
+// ============================================================
+function showProgress(label, total) {
+  document.getElementById('progress-wrap').classList.remove('hidden');
+  document.getElementById('progress-label').textContent = label;
+  document.getElementById('progress-count').textContent = '0 / ' + total;
+  document.getElementById('progress-bar-fill').style.width = '0%';
+  document.getElementById('progress-text').textContent = '正在准备...';
+}
+
+function updateProgressUI(progress) {
+  const pct = progress.total > 0 ? Math.round(progress.current / progress.total * 100) : 0;
+  document.getElementById('progress-count').textContent = progress.current + ' / ' + progress.total;
+  document.getElementById('progress-bar-fill').style.width = pct + '%';
+  document.getElementById('progress-text').textContent = progress.message || '';
+}
+
+function hideProgress() {
+  document.getElementById('progress-wrap').classList.add('hidden');
+}
+
+async function pollUntilDone(taskLabel, total) {
+  showProgress(taskLabel, total);
+  return new Promise((resolve, reject) => {
+    const check = async () => {
+      try {
+        const res = await fetch('/api/progress/' + jobId);
+        const p = await res.json();
+        if (p.error) { hideProgress(); reject(new Error(p.error)); return; }
+        updateProgressUI(p);
+        if (p.task === 'done') {
+          setTimeout(() => hideProgress(), 600);
+          resolve(p.result || {});
+        } else if (p.task === 'error') {
+          setTimeout(() => hideProgress(), 600);
+          reject(new Error(p.error || p.message || '处理失败'));
+        } else {
+          setTimeout(check, 500);
+        }
+      } catch (e) {
+        hideProgress();
+        reject(e);
+      }
+    };
+    check();
+  });
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function escapeAttr(str) {
+  return String(str).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// ============================================================
+//  图片放大查看器
+// ============================================================
+let zoomState = { scale: 1, translateX: 0, translateY: 0, dragging: false, startX: 0, startY: 0 };
+
+function openZoom(imgSrc) {
+  const overlay = document.getElementById('img-zoom-overlay');
+  const img = document.getElementById('img-zoom-image');
+  img.src = imgSrc;
+  zoomState = { scale: 1, translateX: 0, translateY: 0, dragging: false, startX: 0, startY: 0 };
+  img.style.transform = 'scale(1) translate(0px, 0px)';
+  overlay.classList.remove('hidden');
+  overlay.classList.remove('dragging');
+}
+
+function closeZoom() {
+  document.getElementById('img-zoom-overlay').classList.add('hidden');
+}
+
+document.getElementById('img-zoom-overlay').addEventListener('click', function(e) {
+  if (e.target === this) closeZoom();
+});
+
+document.getElementById('img-zoom-overlay').addEventListener('wheel', function(e) {
+  e.preventDefault();
+  const delta = e.deltaY > 0 ? -0.15 : 0.15;
+  zoomState.scale = Math.max(0.5, Math.min(8, zoomState.scale + delta));
+  applyZoomTransform();
+});
+
+document.getElementById('img-zoom-overlay').addEventListener('mousedown', function(e) {
+  if (e.target.tagName === 'IMG') {
+    zoomState.dragging = true;
+    zoomState.startX = e.clientX - zoomState.translateX;
+    zoomState.startY = e.clientY - zoomState.translateY;
+    this.classList.add('dragging');
+    e.preventDefault();
+  }
+});
+
+document.addEventListener('mousemove', function(e) {
+  if (!zoomState.dragging) return;
+  zoomState.translateX = e.clientX - zoomState.startX;
+  zoomState.translateY = e.clientY - zoomState.startY;
+  applyZoomTransform();
+});
+
+document.addEventListener('mouseup', function() {
+  if (zoomState.dragging) {
+    zoomState.dragging = false;
+    document.getElementById('img-zoom-overlay').classList.remove('dragging');
+  }
+});
+
+function applyZoomTransform() {
+  const img = document.getElementById('img-zoom-image');
+  img.style.transform = `scale(${zoomState.scale}) translate(${zoomState.translateX}px, ${zoomState.translateY}px)`;
+}
+
+// ============================================================
+//  条码区域框选
+// ============================================================
+let barcodeRegion = null;  // { x1, y1, x2, y2 } 百分比
+let regionDrawing = { active: false, startX: 0, startY: 0 };
+
+function openBarcodeRegionModal() {
+  const sel = document.getElementById('barcode-sample-select');
+  if (!sel.value) { toast('请先选择一张样例图片', 'err'); return; }
+  const img = document.getElementById('region-sample-img');
+  img.src = `/api/preview-image/${jobId}/${encodeURIComponent(sel.value)}`;
+  document.getElementById('region-modal').classList.remove('hidden');
+  // 等待图片加载后设置 canvas
+  img.onload = setupRegionCanvas;
+  img.onerror = () => { toast('图片加载失败', 'err'); closeBarcodeRegionModal(); };
+}
+
+function setupRegionCanvas() {
+  const img = document.getElementById('region-sample-img');
+  const canvas = document.getElementById('region-canvas');
+  const wrap = document.getElementById('region-canvas-wrap');
+  canvas.width = img.offsetWidth;
+  canvas.height = img.offsetHeight;
+  canvas.style.width = img.offsetWidth + 'px';
+  canvas.style.height = img.offsetHeight + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  regionDrawing.active = false;
+}
+
+function closeBarcodeRegionModal() {
+  document.getElementById('region-modal').classList.add('hidden');
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  const canvas = document.getElementById('region-canvas');
+  canvas.addEventListener('mousedown', function(e) {
+    const rect = canvas.getBoundingClientRect();
+    regionDrawing.active = true;
+    regionDrawing.startX = e.clientX - rect.left;
+    regionDrawing.startY = e.clientY - rect.top;
+  });
+  canvas.addEventListener('mousemove', function(e) {
+    if (!regionDrawing.active) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = '#00ff88';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 3]);
+    ctx.strokeRect(regionDrawing.startX, regionDrawing.startY, mx - regionDrawing.startX, my - regionDrawing.startY);
+  });
+  canvas.addEventListener('mouseup', function(e) {
+    if (!regionDrawing.active) return;
+    regionDrawing.active = false;
+    const rect = canvas.getBoundingClientRect();
+    const ex = e.clientX - rect.left;
+    const ey = e.clientY - rect.top;
+    const x1 = Math.min(regionDrawing.startX, ex);
+    const y1 = Math.min(regionDrawing.startY, ey);
+    const x2 = Math.max(regionDrawing.startX, ex);
+    const y2 = Math.max(regionDrawing.startY, ey);
+    if (Math.abs(x2 - x1) < 10 || Math.abs(y2 - y1) < 10) return; // 太小忽略
+    // 转为百分比
+    const cw = canvas.width, ch = canvas.height;
+    barcodeRegion = {
+      x1: +(x1 / cw * 100).toFixed(2),
+      y1: +(y1 / ch * 100).toFixed(2),
+      x2: +(x2 / cw * 100).toFixed(2),
+      y2: +(y2 / ch * 100).toFixed(2),
+    };
+    document.getElementById('barcode-region-status').textContent =
+      `已选中区域 (${barcodeRegion.x1}%, ${barcodeRegion.y1}%) - (${barcodeRegion.x2}%, ${barcodeRegion.y2}%)`;
+    document.getElementById('barcode-region-clear').style.display = '';
+    closeBarcodeRegionModal();
+  });
+});
+
+function confirmBarcodeRegion() {
+  // 鼠标松开时已保存，直接关闭
+  closeBarcodeRegionModal();
+}
+
+function clearBarcodeRegion() {
+  barcodeRegion = null;
+  document.getElementById('barcode-region-status').textContent = '';
+  document.getElementById('barcode-region-clear').style.display = 'none';
+}
+
+// ============================================================
+//  重复条码显示
+// ============================================================
+function renderDupBarcodes(dupBarcodes) {
+  const wrap = document.getElementById('match-dup-wrap');
+  const list = document.getElementById('match-dup-list');
+  if (!dupBarcodes || !dupBarcodes.length) {
+    wrap.classList.add('hidden');
+    return;
+  }
+  wrap.classList.remove('hidden');
+  // 按条码值分组
+  const groups = {};
+  dupBarcodes.forEach(r => {
+    const v = r.barcode_data;
+    if (!groups[v]) groups[v] = [];
+    groups[v].push(r);
+  });
+  let html = '';
+  for (const [barcodeVal, items] of Object.entries(groups)) {
+    const matchedItem = items.find(r => r.matched_student);
+    const matchedSid = (matchedItem && matchedItem.matched_student) || '';
+    const student = studentListData.find(s => s.student_id === matchedSid);
+    const studentName = student ? student.student_name : (matchedSid || '未匹配');
+    html += `<div style="margin-bottom:8px;padding:8px 12px;background:#fff3e0;border-radius:6px;font-size:13px;">`;
+    html += `<strong>条码:</strong> ${escapeHtml(barcodeVal)} → 匹配: ${escapeHtml(studentName)}`;
+    html += ` | 出现在 ${items.length} 张图片上: `;
+    html += items.map(r => `<code>${escapeHtml(r.image)}</code>`).join(', ');
+    html += `</div>`;
+  }
+  list.innerHTML = html;
+}
+
+// 初始化：在所有 mark-image 上绑定事件
+function initMarkImages() {
+  setupMarkImageClick('front');
+  setupMarkImageClick('back');
+}
+
 // 启动
 init();
+initMarkImages();
 </script>
 
 </body>

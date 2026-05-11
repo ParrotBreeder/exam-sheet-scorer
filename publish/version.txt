@@ -1,0 +1,13 @@
+答题卡小题分匹配系统 v3.0.0
+Build date: 2026-05-11
+
+更新内容:
+- PDF 转图片改为真正的多进程并行（ProcessPoolExecutor）：单个 PDF 的页面分发到多个 worker 进程同时渲染，绕过 GIL，CPU 多核可被打满
+- 持久化进程池：跨 PDF 上传复用 worker 进程，避免每次重新 spawn
+- 输出文件名改为 {全局序号:05d}_{原 PDF stem}.jpg 命名，多次上传 / 重名 PDF 不会覆盖；按上传顺序自然排序
+- 进度条改为按页粒度更新（每完成一页就刷新进度），告别"已经在转换却还显示准备中"的假进度
+- 上传过程错误隔离：单个 PDF 失败不影响其它 PDF，错误信息显式回传前端
+- 修复 _do_pdf_convert 中 fitz.open 在 try 块外、单 PDF 异常会让任务整体崩掉的 bug
+- 取消 1GB 上传大小限制（本地单机使用，磁盘空间即上限）
+- PyInstaller 打包加 multiprocessing.freeze_support()，子进程能正确启动
+- 新增项目文档 CLAUDE.md，详细描述模块结构、API、设计决策
